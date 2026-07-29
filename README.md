@@ -21,6 +21,7 @@ automated test suite and CI.
 - [Testing](#testing)
 - [Continuous Integration](#continuous-integration)
 - [Roadmap](#roadmap)
+- [Documentation](#documentation)
 - [Disclaimer](#disclaimer)
 - [License](#license)
 
@@ -173,6 +174,15 @@ developer would locally (`pip install -e ".[dev]"`). See
 - [ ] Output formats (JSON, table, file export)
 - [ ] Web interface for interactive scanning
 - [ ] Deployment
+
+## Documentation
+
+Further project documentation lives at the repository root:
+
+- [`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md) — current status and next objective
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — code structure and design rationale
+- [`ROADMAP.md`](ROADMAP.md) — detailed, phased roadmap
+- [`DECISIONS.md`](DECISIONS.md) — architectural decisions and rationale
 
 ## Disclaimer
 
