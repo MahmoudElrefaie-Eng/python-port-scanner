@@ -18,8 +18,10 @@ Requires Python `>=3.10`; CI runs the suite on Python 3.14.
 - **Concurrent scanning** (`scan_range`) — `ThreadPoolExecutor`-based, with
   a configurable `max_workers` (default 50).
 - **Nmap-style port specs** (`parse_ports`/`_to_port` in
-  `src/port_scanner/cli.py`) — supports comma lists and dash ranges
-  (`22,80,443,8000-8010`), validates and deduplicates.
+  `src/port_scanner/parsing.py`) — supports comma lists and dash ranges
+  (`22,80,443,8000-8010`), validates and deduplicates. `cli.py` imports
+  this rather than defining it, so any future interface can reuse it too
+  (see [`ARCHITECTURE.md`](ARCHITECTURE.md)).
 - **Configurable timeout and concurrency** — `--timeout` (default `1.0`s)
   and `--workers` (default `50`) CLI flags.
 - **Scriptable exit codes** — `0` on completed scan, `2` on invalid port

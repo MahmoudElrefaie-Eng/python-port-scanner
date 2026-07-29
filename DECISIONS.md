@@ -106,3 +106,21 @@ as declared in `pyproject.toml` (`license = { file = "LICENSE" }`).
 **Rationale:** MIT is a permissive, widely recognized license that imposes
 minimal restrictions on reuse, which fits a portfolio project intended to
 be read, run, and learned from by others without licensing friction.
+
+## 11. Port-spec parsing extracted into its own module (`parsing.py`)
+
+**Decision:** `parse_ports` and `_to_port`, originally defined in `cli.py`,
+were moved verbatim (no logic or behavior change) into a new
+`src/port_scanner/parsing.py` module. `cli.py` now imports `parse_ports`
+from there instead of defining it.
+
+**Rationale:** This logic takes a string and returns validated port
+numbers — it has no dependency on `argparse`, console output, or process
+exit codes, so it was never truly CLI-specific. It was made ahead of adding
+a second interface (a planned FastAPI web application, see
+[`ROADMAP.md`](ROADMAP.md)) specifically to avoid a bad choice that
+otherwise would have been forced: either the new interface imports parsing
+logic from another *interface* module (`cli.py`), or it duplicates the
+parser. Both are worse than giving parsing logic its own module that every
+interface can depend on as a peer. See
+[`ARCHITECTURE.md`](ARCHITECTURE.md) for the resulting layering.

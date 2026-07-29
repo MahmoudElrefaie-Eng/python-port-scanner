@@ -55,7 +55,7 @@ automated test suite and CI.
 ```mermaid
 flowchart TD
     A[User] -->|"port-scanner target --ports ..."| B["CLI (cli.py)"]
-    B --> C["parse_ports()<br/>Nmap-style port spec parsing"]
+    B --> C["parsing.py: parse_ports()<br/>Nmap-style port spec parsing"]
     C --> D["scan_range()<br/>ThreadPoolExecutor"]
     D --> E1["scan_port() worker"]
     D --> E2["scan_port() worker"]
@@ -138,6 +138,7 @@ python-port-scanner/
 │   └── ci.yml
 ├── src/port_scanner/   # installable package source
 │   ├── scanner.py      # scan_port / scan_range (TCP connect scan engine)
+│   ├── parsing.py      # parse_ports (Nmap-style port-spec parsing)
 │   └── cli.py          # command-line interface
 ├── tests/              # test suite
 ├── pyproject.toml      # packaging & dependencies

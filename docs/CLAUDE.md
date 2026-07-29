@@ -19,8 +19,10 @@ one conversation:
 
 1. `git log --oneline -20` — see what actually landed recently.
 2. `git status` — check for uncommitted work; never discard it silently.
-3. Read `src/port_scanner/scanner.py` and `src/port_scanner/cli.py` — these
-   are the entire application; both are short enough to read in full.
+3. Read `src/port_scanner/scanner.py`, `src/port_scanner/parsing.py`, and
+   `src/port_scanner/cli.py` — this is the entire application (plus
+   `src/port_scanner/web/` once the planned web interface lands); all are
+   short enough to read in full.
 4. Read `tests/test_scanner.py` and `tests/test_cli.py` — the tests define
    the contract the code must keep.
 5. Read `pyproject.toml` — authoritative source for version, dependencies,
