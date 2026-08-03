@@ -252,6 +252,15 @@ input[type="text"]:focus {
   color: var(--color-success);
 }
 
+.banner-cell {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+}
+
+.banner-cell--unknown {
+  color: var(--color-text-muted);
+}
+
 .no-results {
   color: var(--color-text-muted);
   margin: 0;

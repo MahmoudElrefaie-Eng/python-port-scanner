@@ -20,12 +20,14 @@ one conversation:
 1. `git log --oneline -20` — see what actually landed recently.
 2. `git status` — check for uncommitted work; never discard it silently.
 3. Read `src/port_scanner/scanner.py`, `src/port_scanner/parsing.py`,
+   `src/port_scanner/detection.py`, `src/port_scanner/discovery.py`,
    `src/port_scanner/cli.py`, and `src/port_scanner/web/` (FastAPI
-   interface — skeleton plus a server-rendered scan flow as of Milestone 2;
-   no auth/database/service-detection/async-queue yet; see
-   `ARCHITECTURE.md`) — this is the entire application; all are short
-   enough to read in full.
-4. Read `tests/test_scanner.py`, `tests/test_cli.py`, and
+   interface — skeleton, scan flow, and service detection as of
+   Milestone 3; no auth/database/async-queue yet, deliberately deferred,
+   see `ROADMAP.md` and `ARCHITECTURE.md`) — this is the entire
+   application; all are short enough to read in full.
+4. Read `tests/test_scanner.py`, `tests/test_cli.py`,
+   `tests/test_detection.py`, `tests/test_discovery.py`, and
    `tests/test_web.py` — the tests define the contract the code must keep.
 5. Read `pyproject.toml` — authoritative source for version, dependencies,
    Python support range, and the `port-scanner` console-script entry point.
@@ -59,9 +61,10 @@ There is no linter, formatter, or type-checker configured in this repo today
 ## 4. Coding standards (as already practiced in this codebase)
 
 - **Stdlib only for the base install and core.** `scanner.py`, `parsing.py`,
-  and `cli.py` depend on nothing outside the Python standard library
-  (`socket`, `argparse`, `concurrent.futures`, `functools`, `typing`); the
-  base `pip install -e .` (no extras) stays dependency-free. Don't add a
+  `detection.py`, `discovery.py`, and `cli.py` depend on nothing outside
+  the Python standard library (`socket`, `ssl`, `re`, `argparse`,
+  `concurrent.futures`, `functools`, `typing`); the base `pip install -e .`
+  (no extras) stays dependency-free. Don't add a
   runtime dependency to those three files, or to `[project] dependencies`,
   without discussing it with the user first. `src/port_scanner/web/` is the
   one deliberate exception — it depends on the `web` extra

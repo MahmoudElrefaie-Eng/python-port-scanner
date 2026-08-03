@@ -1,25 +1,29 @@
 """Runs a scan on behalf of the web form.
 
-This is the *only* place in `web/` that imports `parse_ports`/`scan_range`
-— no route module talks to the scanning core directly. It exists to add
-the things a public HTTP form needs that a local CLI invocation doesn't:
+This is the *only* place in `web/` that imports `parse_ports`/`discover`
+— no route module talks to the scanning/detection core directly. It
+exists to add the things a public HTTP form needs that a local CLI
+invocation doesn't:
 
 - input bounds (a stranger on the internet can submit anything a `<form>`
   will let them, unlike argv typed by whoever is running the CLI locally)
 - translating `ValueError`/`OSError` into `ScanFormError`, whose message is
   safe to render straight into the page (see `routes/pages.py`)
 
-No scanning or parsing logic is duplicated: this module validates bounds
-and translates exceptions, nothing more.
+No scanning, parsing, or service-detection logic is duplicated: this
+module validates bounds and translates exceptions, nothing more — the CLI
+(`cli.py`) and this module both call `port_scanner.discovery.discover`,
+the one shared entrypoint, and so always see identical results for the
+same inputs.
 """
 
 from __future__ import annotations
 
 import time
 
+from port_scanner.discovery import discover
 from port_scanner.parsing import parse_ports
-from port_scanner.scanner import scan_range
-from port_scanner.web.schemas.scan import ScanFormData, ScanResultView
+from port_scanner.web.schemas.scan import PortResultView, ScanFormData, ScanResultView
 
 # Bounds beyond what parse_ports/scan_range enforce themselves. The CLI has
 # none of these because argv is typed by whoever runs it locally; this form
@@ -72,7 +76,7 @@ def run_scan(form: ScanFormData) -> ScanResultView:
 
     started = time.monotonic()
     try:
-        open_ports = scan_range(target, ports, timeout=timeout, max_workers=workers)
+        port_results = discover(target, ports, timeout=timeout, max_workers=workers)
     except OSError as exc:
         # Covers socket.gaierror (DNS resolution failure) and friends —
         # all subclasses of OSError.
@@ -81,7 +85,10 @@ def run_scan(form: ScanFormData) -> ScanResultView:
 
     return ScanResultView(
         target=target,
-        open_ports=open_ports,
+        results=[
+            PortResultView(port=r.port, state=r.state, service=r.service, banner=r.banner)
+            for r in port_results
+        ],
         ports_scanned=len(ports),
         timeout=timeout,
         workers=workers,

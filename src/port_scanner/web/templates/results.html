@@ -15,18 +15,19 @@
 {% include "scan.html" %}
 
 <section class="card results">
-  {% if result.open_ports %}
-  <h2>{{ result.open_ports|length }} open port{{ "s" if result.open_ports|length != 1 else "" }}</h2>
+  {% if result.results %}
+  <h2>{{ result.results|length }} open port{{ "s" if result.results|length != 1 else "" }}</h2>
   <table class="results-table">
     <thead>
-      <tr><th>Port</th><th>Protocol</th><th>State</th></tr>
+      <tr><th>Port</th><th>Status</th><th>Service</th><th>Banner</th></tr>
     </thead>
     <tbody>
-      {% for port in result.open_ports %}
+      {% for r in result.results %}
       <tr>
-        <td>{{ port }}</td>
-        <td>tcp</td>
-        <td><span class="state state--open">open</span></td>
+        <td>{{ r.port }}</td>
+        <td><span class="state state--open">{{ r.state }}</span></td>
+        <td>{{ r.service }}</td>
+        <td class="banner-cell{{ ' banner-cell--unknown' if r.banner == 'Unknown' else '' }}">{{ r.banner }}</td>
       </tr>
       {% endfor %}
     </tbody>

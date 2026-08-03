@@ -187,6 +187,11 @@ class TestScanSubmission:
         assert "open" in response.text.lower()
         # The form is redisplayed, prefilled with what was submitted.
         assert f'value="{port}"' in response.text
+        # New (Milestone 3) results columns.
+        assert "Service" in response.text
+        assert "Banner" in response.text
+        # A raw listening socket isn't a recognized service.
+        assert "Unknown" in response.text
 
     def test_reports_no_open_ports(self, client: TestClient):
         closed_port = _free_port()
@@ -260,7 +265,8 @@ class TestScanService:
                 ScanFormData(target="127.0.0.1", ports=str(port), timeout="0.5", workers="10")
             )
 
-        assert result.open_ports == [port]
+        assert [r.port for r in result.results] == [port]
+        assert result.results[0].state == "OPEN"
         assert result.ports_scanned == 1
         assert result.target == "127.0.0.1"
 

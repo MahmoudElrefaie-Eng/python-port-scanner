@@ -3,10 +3,12 @@
 import argparse
 import sys
 
+from port_scanner.discovery import PortResult, discover
 from port_scanner.parsing import parse_ports
-from port_scanner.scanner import scan_range
 
 DEFAULT_PORTS = "1-1024"
+_TABLE_HEADERS = ("PORT", "STATE", "SERVICE", "BANNER")
+_COLUMN_GAP = "  "
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -38,6 +40,23 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _format_table(results: list[PortResult]) -> str:
+    """Render `results` as a fixed-width table, columns sized to content."""
+    rows = [(str(r.port), r.state, r.service, r.banner) for r in results]
+    columns = [_TABLE_HEADERS, *rows]
+    widths = [max(len(row[i]) for row in columns) for i in range(len(_TABLE_HEADERS))]
+
+    def format_row(row: tuple[str, ...]) -> str:
+        return _COLUMN_GAP.join(cell.ljust(width) for cell, width in zip(row, widths))
+
+    lines = [
+        format_row(_TABLE_HEADERS),
+        format_row(tuple("-" * width for width in widths)),
+        *(format_row(row) for row in rows),
+    ]
+    return "\n".join(lines)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -48,14 +67,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
-    open_ports = scan_range(
+    results = discover(
         args.target, ports, timeout=args.timeout, max_workers=args.workers
     )
 
-    if open_ports:
-        print(f"Open ports on {args.target}:")
-        for port in open_ports:
-            print(f"  {port}/tcp open")
+    if results:
+        print(f"Open ports on {args.target}:\n")
+        print(_format_table(results))
     else:
         print(f"No open ports found on {args.target} in the scanned range.")
 

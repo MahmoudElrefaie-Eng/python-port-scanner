@@ -5,9 +5,13 @@
 [![Python 3.14](https://img.shields.io/badge/python-3.14-blue.svg)](.github/workflows/ci.yml)
 
 A fast, concurrent TCP port scanner built in Python, developed as part of a
-cybersecurity portfolio. It scans a host over Nmap-style port specs using a
-thread pool and ships as an installable CLI (`port-scanner`) with a full
-automated test suite and CI.
+cybersecurity portfolio — evolving into a lightweight network discovery
+platform that reports not just which ports are open, but what's running on
+them. It scans a host over Nmap-style port specs using a thread pool,
+identifies common services and grabs their banners (no Nmap, no external
+APIs, no vulnerability scanning), and ships as both an installable CLI
+(`port-scanner`) and a server-rendered web UI, with a full automated test
+suite and CI.
 
 ## Table of Contents
 
@@ -31,10 +35,13 @@ automated test suite and CI.
 - ✅ Stable CLI release
 - ✅ Automated testing with GitHub Actions
 - ✅ Web interface: server-rendered scan form (`GET /`, `POST /scan`) — see below
+- ✅ Service detection & banner grabbing — shared by the CLI and the web UI, see below
 - 🚧 Planned features:
-  - Service/banner detection
-  - JSON export
-  - Web interface: authentication, scan history, user accounts
+  - JSON / file export output formats
+  - Banner grabbing for the remaining services that currently only get a
+    port-based guess (DNS, LDAP, SMB, RDP, PostgreSQL, MongoDB, NTP)
+  - Web interface: authentication, scan history, user accounts (deferred
+    in favor of service detection — see [`DECISIONS.md`](DECISIONS.md#26-roadmap-pivot-service-detection-before-authenticationaccountshistory))
 
 ## Features
 
@@ -45,12 +52,22 @@ automated test suite and CI.
   as long as the slowest single connection, not the sum of all of them.
 - **Nmap-style port specs** — `22,80,443,8000-8010` style input, with
   validation and clear error messages for malformed specs.
+- **Service detection** — identifies 16 common services (SSH, HTTP, HTTPS,
+  FTP, SMTP, POP3, IMAP, DNS, MySQL, PostgreSQL, Redis, MongoDB, SMB,
+  LDAP, RDP, NTP) on open ports from a well-known-port table.
+- **Banner grabbing** — for 9 of those services (SSH, FTP, SMTP, POP3,
+  IMAP, HTTP, HTTPS, MySQL, Redis), reads or requests a real banner
+  (`OpenSSH_9.6`, `nginx/1.18.0`, a MySQL version string, ...) instead of
+  just guessing from the port. No Nmap, no external APIs, no
+  vulnerability scanning — lightweight, protocol-aware probes only. A
+  banner grab failing never fails the scan; it falls back to `Unknown`.
 - **Configurable timeout and concurrency** — tune `--timeout` and
   `--workers` per scan for speed vs. reliability trade-offs.
 - **Scriptable exit codes** — `0` for a completed scan, `2` for invalid
   input — safe to use in shell pipelines and automation.
-- **Fully tested** — unit tests for the scan engine, port-spec parser, and
-  CLI, run automatically on every push via GitHub Actions.
+- **Fully tested** — 68 tests covering the scan engine, port-spec parser,
+  service detection, banner grabbing, CLI, and web interface, run
+  automatically on every push via GitHub Actions.
 
 ## Architecture
 
@@ -58,19 +75,20 @@ automated test suite and CI.
 flowchart TD
     A[User] -->|"port-scanner target --ports ..."| B["CLI (cli.py)"]
     B --> C["parsing.py: parse_ports()<br/>Nmap-style port spec parsing"]
-    C --> D["scan_range()<br/>ThreadPoolExecutor"]
-    D --> E1["scan_port() worker"]
-    D --> E2["scan_port() worker"]
-    D --> E3["scan_port() worker N"]
-    E1 --> F[Sorted Scan Results]
-    E2 --> F
-    E3 --> F
-    F --> G[Results printed to stdout]
+    C --> D["discovery.py: discover()"]
+    D --> E["scanner.py: scan_range()<br/>ThreadPoolExecutor"]
+    E --> F["open ports only"]
+    F --> G["detection.py: identify_service()<br/>service guess + banner grab"]
+    G --> H["list of Port / State / Service / Banner"]
+    H --> I["CLI: table on stdout, or Web UI: results page"]
 ```
 
 Each `scan_port()` call opens its own socket and shares no state with the
 others, so the thread pool needs no locking — this is what keeps the
-concurrency model simple.
+concurrency model simple. Banner grabbing runs as a second pass, only
+against ports the first pass found open, so it doesn't meaningfully slow
+down a full-range scan. See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the
+full design and [`DECISIONS.md`](DECISIONS.md) for the reasoning.
 
 ## Installation
 
@@ -100,7 +118,11 @@ Example output:
 
 ```
 Open ports on 127.0.0.1:
-  8000/tcp open
+
+PORT  STATE  SERVICE  BANNER
+----  -----  -------  ----------------------------------
+22    OPEN   SSH      OpenSSH_9.6
+8000  OPEN   HTTP     nginx/1.18.0
 ```
 
 If no ports in the scanned range are open:
@@ -142,15 +164,16 @@ A successful scan (open ports found or not) exits with status code `0`.
 ## Web Interface
 
 A FastAPI web interface lives at `src/port_scanner/web/`, as a peer to the
-CLI — it depends only on `scanner.py`/`parsing.py`, never on `cli.py`.
+CLI — it depends only on `discovery.py`/`parsing.py`, never on `cli.py`.
 Server-rendered with Jinja2 (no JavaScript): a scan form (`GET /`) posts to
-`POST /scan`, which runs the same `parse_ports`/`scan_range` the CLI uses
-and renders a results page. Invalid input (a bad port spec, an empty
-target, an out-of-range timeout, an unresolvable host) is shown inline on
-the page, never as a raw exception. Also included: environment-variable
-configuration, centralized logging, global exception handling for the
-`/api/v1` side, and customized OpenAPI docs. No authentication, database,
-service detection, or async job queue yet.
+`POST /scan`, which runs the same `discover()` pipeline the CLI uses —
+scan, then service detection and banner grabbing — and renders a results
+table with Port/Status/Service/Banner columns. Invalid input (a bad port
+spec, an empty target, an out-of-range timeout, an unresolvable host) is
+shown inline on the page, never as a raw exception. Also included:
+environment-variable configuration, centralized logging, global exception
+handling for the `/api/v1` side, and customized OpenAPI docs. No
+authentication, database, or async job queue yet.
 
 ```bash
 pip install -e ".[dev,web]"
@@ -160,14 +183,14 @@ uvicorn port_scanner.web.app:app --reload
 Then open `http://127.0.0.1:8000/` in a browser.
 
 - `GET /` — the scan form
-- `POST /scan` — runs a scan, renders the results page
+- `POST /scan` — runs a scan (with service detection), renders the results page
 - `GET /health` — liveness check
 - `GET /docs`, `GET /redoc` — interactive API documentation
 - `GET /openapi.json` — OpenAPI schema
 
 See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the design and
 [`ROADMAP.md`](ROADMAP.md) for what's planned next (auth, scan history,
-user accounts).
+user accounts — deferred, not abandoned).
 
 ## Project Structure
 
@@ -178,7 +201,9 @@ python-port-scanner/
 ├── src/port_scanner/   # installable package source
 │   ├── scanner.py      # scan_port / scan_range (TCP connect scan engine)
 │   ├── parsing.py      # parse_ports (Nmap-style port-spec parsing)
-│   ├── cli.py          # command-line interface
+│   ├── detection.py    # guess_service / identify_service (service ID + banners)
+│   ├── discovery.py    # discover() — the shared entrypoint (scan + detect)
+│   ├── cli.py          # command-line interface (table output)
 │   └── web/            # FastAPI interface (see Web Interface, above)
 │       ├── app.py          # create_app() factory
 │       ├── core/            # config, logging, exceptions, templating
@@ -220,11 +245,13 @@ developer would locally (`pip install -e ".[dev,web]"`). See
 - [x] Packaging (`pyproject.toml`, installable console script)
 - [x] Test suite
 - [x] CI (automated tests on every push)
-- [ ] Service/banner detection
-- [ ] Output formats (JSON, table, file export)
+- [x] Service/banner detection (16 services identified; 9 with active
+      banner grabs — see [`DECISIONS.md`](DECISIONS.md))
+- [x] Output formats: table (CLI + web); JSON/file export still planned
 - [x] Web interface — Milestone 1: FastAPI skeleton
 - [x] Web interface — Milestone 2: scan flow
-- [ ] Web interface — auth, scan history, user accounts
+- [x] Web interface — Milestone 3: service detection & banner grabbing
+- [ ] Web interface — auth, scan history, user accounts (deferred)
 - [ ] Deployment
 
 ## Documentation

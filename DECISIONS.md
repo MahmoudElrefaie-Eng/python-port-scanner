@@ -257,3 +257,131 @@ stays free to serve other requests while a scan is in flight. Had
 directly, one in-flight scan would block the single-threaded event loop —
 and therefore every other request the server is handling — for the
 scan's entire duration.
+
+## 20. Service detection is two new peer modules (`detection.py`, `discovery.py`), not changes to `scanner.py`
+
+**Decision:** Milestone 3 (service detection & banner grabbing) added
+`src/port_scanner/detection.py` (service guessing, banner grabbing) and
+`src/port_scanner/discovery.py` (`discover()`, orchestrating `scanner.py`
++ `detection.py` into `list[PortResult]`). `scanner.py` and `parsing.py`
+are byte-for-byte unchanged — not even a new parameter.
+
+**Rationale:** `scan_port`/`scan_range` had an established contract
+(`bool`, `list[int]`) that `tests/test_scanner.py` and `cli.py` already
+depended on; changing their return type to structured objects would have
+broken both for no benefit, since nothing about "does this port accept a
+TCP connection" needs to know about banners. `discovery.py` composes the
+existing scan with the new detection step from the outside, the same way
+`cli.py` and `web/` already compose `parsing.py` with `scanner.py` — one
+more layer in a pattern that was already working, not a new pattern.
+`detection.py` depends on nothing else in the shared-logic layer (it only
+needs a `(host, port)` to probe, not a scan result), so it's independently
+testable and reusable even outside `discover()`.
+
+## 21. No Nmap, no external APIs, no vulnerability scanning — a hard boundary, not a starting point
+
+**Decision:** Every technique in `detection.py` is either a static
+well-known-port table or a short, protocol-aware exchange the tool
+performs itself over a socket it already opened. Nothing shells out to
+`nmap`, calls a third-party lookup service, or performs any
+credential/exploit/CVE-style probing.
+
+**Rationale:** This was an explicit constraint on the milestone, not
+merely a nice-to-have: this project is a portfolio piece demonstrating
+what can be built from first principles with the standard library, not a
+wrapper around an existing scanner. It also keeps the tool's legal/ethical
+footprint identical to what [`README.md`](README.md)'s disclaimer already
+describes (a TCP connect scan and a read of what a service volunteers) —
+adding exploit or vulnerability probing would change what "authorized
+security testing and educational use" actually means for this tool and
+wasn't something to introduce without that conversation happening first.
+
+## 22. Active banner probes for 9 of the 16 required services; port-guess + passive read for the rest
+
+**Decision:** `_BANNER_GRABBERS` has entries for SSH, FTP, SMTP, POP3,
+IMAP, HTTP, HTTPS, MySQL, and Redis. DNS, LDAP, SMB, RDP, PostgreSQL,
+MongoDB, and NTP are identified by `guess_service`'s port table only;
+their banner falls through to `_grab_generic` (a passive read, no write).
+
+**Rationale:** The 9 implemented protocols either send a greeting
+unprompted (SSH/FTP/SMTP/POP3/IMAP/MySQL) or respond to one trivial,
+universally-supported request (HTTP/HTTPS `HEAD /`; Redis `INFO`, which
+works pre-authentication on a default install). The other 7 require
+building and parsing a binary or ASN.1-encoded protocol handshake
+(SMB negotiate, LDAP BER-encoded bind/search, RDP's X.224 exchange,
+PostgreSQL's startup packet, MongoDB's BSON wire protocol) for
+meaningfully more implementation and maintenance cost per protocol than
+the 9 above, with a materially higher chance of getting a fiddly detail
+wrong against real-world server variance. "The implementation should
+remain lightweight" (the milestone's own words) was read as license to
+cut scope here rather than build seven fragile protocol clients. Every
+port in `SERVICE_PORTS` still gets a correct *service name* — only the
+*banner* is `"Unknown"` for these seven. This is a documented boundary,
+not a bug; expanding `_BANNER_GRABBERS` to cover more of them is a
+natural, additive follow-up (each new grabber is one function and one
+dict entry, per [Decision 20](DECISIONS.md)'s module layout) if a future
+milestone wants it.
+
+## 23. `identify_service` catches `Exception` broadly, on purpose
+
+**Decision:** `identify_service`'s call into whichever grabber it
+dispatches to is wrapped in a bare `except Exception`, not a narrower set
+of expected error types (`OSError`, `ssl.SSLError`, etc.).
+
+**Rationale:** The milestone's requirement is unconditional: "Never fail
+the scan because banner grabbing failed" / "Banner failures should never
+stop scanning." A banner grab touches a remote, uncontrolled service —
+the failure modes aren't limited to socket errors (a malformed response
+could also raise while being decoded or regex-matched, for instance). The
+cost of being broad here is low (a banner grab has no side effects to
+leave half-finished) and the cost of narrowing it and missing a case is a
+whole scan crashing on one uncooperative port. `discover()` and the
+callers above it never need their own try/except around a banner grab as
+a result — the guarantee lives in exactly one place.
+
+## 24. Two-phase scan-then-identify, not banner-grab-while-scanning
+
+**Decision:** `discover()` runs `scan_range` to completion first, then
+runs `identify_service` only over the ports that came back open, in a
+second, separate `ThreadPoolExecutor` pass.
+
+**Rationale:** The milestone asks for both correctness ("never fail
+the scan") and performance ("do not noticeably slow the scanner" /
+"avoid unnecessary socket connections"). A typical scan (e.g. the CLI's
+default `1-1024`) has far more closed ports than open ones; giving every
+scanned port a second, slower, protocol-aware connection attempt would
+multiply the cost of a scan by however many ports are in range, not by
+however many are actually open. Restricting the (slower, write-then-read)
+detection phase to just the open subset keeps the added cost proportional
+to what was actually found, which is the whole point of scanning first.
+
+## 25. The CLI's table formatter is hand-rolled, not a `rich`/`tabulate` dependency
+
+**Decision:** `cli.py`'s `_format_table()` is ~15 lines of stdlib string
+formatting (compute column widths, left-justify, join) — no table-rendering
+library was added.
+
+**Rationale:** Same reasoning as decision 5: the base `pip install -e .`
+install has zero runtime dependencies, and a fixed-width table with four
+columns doesn't need a library to render well. `rich`/`tabulate` would
+buy color and box-drawing characters at the cost of a new dependency for
+a "professional table" requirement that a straightforward `ljust()` loop
+satisfies.
+
+## 26. Roadmap pivot: service detection before authentication/accounts/history
+
+**Decision:** After Milestones 1–2 (web skeleton, scan flow), the
+originally-planned Milestone 3 — authentication, scan history, user
+accounts — was explicitly deferred in favor of service detection & banner
+grabbing (this milestone) as the project's direction shifts toward being
+a network discovery platform rather than a scan-and-store web app.
+
+**Rationale:** This was a direct instruction, not an inference — recorded
+here because it changes what "next" means in [`ROADMAP.md`](ROADMAP.md)
+and [`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md), and a future session
+re-reading old planning docs without this decision would reasonably
+expect auth to be next. It has a real architectural upside too:
+authentication/history/accounts need a database, and building service
+detection first meant that decision didn't have to be made under time
+pressure before it was needed — `web/api/v1/router.py` and
+`web/services/` already exist and are unaffected by this reordering.

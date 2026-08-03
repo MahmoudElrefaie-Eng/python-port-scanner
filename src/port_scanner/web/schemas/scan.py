@@ -24,11 +24,23 @@ class ScanFormData(BaseModel):
     workers: str = DEFAULT_WORKERS
 
 
+class PortResultView(BaseModel):
+    """One open port, with what was detected running on it — mirrors
+    `port_scanner.discovery.PortResult`, kept as a separate (Pydantic, not
+    dataclass) type so the web layer's response shape can evolve
+    independently of the shared engine's internal representation."""
+
+    port: int
+    state: str
+    service: str
+    banner: str
+
+
 class ScanResultView(BaseModel):
     """A completed scan, shaped for template rendering."""
 
     target: str
-    open_ports: list[int]
+    results: list[PortResultView]
     ports_scanned: int
     timeout: float
     workers: int
