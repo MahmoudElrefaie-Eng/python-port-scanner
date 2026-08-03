@@ -5,14 +5,19 @@ actually implemented in the codebase as of this writing, not intent.
 
 ## Direction
 
-As of Milestone 3, this project is deliberately evolving from a TCP port
+As of Milestone 3, this project deliberately evolved from a TCP port
 scanner into a lightweight **network discovery platform**: reporting not
 just which ports are open, but what's actually running on them — while
 staying dependency-light and Nmap-free (see [Decision 21](DECISIONS.md)).
-Authentication, scan history, and user accounts were the originally
-planned next step after the web scan flow (Milestone 2) but have been
-explicitly deferred in favor of this direction — see
-[Decision 26](DECISIONS.md). They remain planned, just not next.
+As of Milestone 4, the long-term goal is broader still: a professional
+**Security Assessment Platform** — discovery plus vulnerability matching,
+risk scoring, and (later) reporting, compliance, threat intelligence, and
+AI-assisted analysis, all under `src/port_scanner/security/`
+([Decision 27](DECISIONS.md)). Authentication, scan history, and user
+accounts were the originally planned next step after the web scan flow
+(Milestone 2) but have been explicitly deferred in favor of this
+direction — see [Decision 26](DECISIONS.md). They remain planned, just
+not next.
 
 ```mermaid
 flowchart LR
@@ -39,7 +44,14 @@ flowchart LR
         p3a4["Web interface: auth / history / accounts (deferred, planned)"]
         p3b["Deployment"]
     end
-    P1 --> P2 --> P3
+    subgraph P4["Phase 4 — Security Assessment Platform (in progress)"]
+        direction TB
+        p4a["security/ engine: matching, risk scoring, Local+NVD providers (done)"]
+        p4b["CLI + web wiring for assessment (planned, Milestone 5)"]
+        p4c["OSV / Vulners providers (planned, additive)"]
+        p4d["Asset inventory, reporting, compliance, threat intel, AI (planned)"]
+    end
+    P1 --> P2 --> P3 --> P4
 ```
 
 ## Phase 1 — Foundation (complete)
@@ -97,6 +109,42 @@ flowchart LR
       the reordering — see [Decisions 12–19](DECISIONS.md))
 - [ ] Deployment
 
+## Phase 4 — Security Assessment Platform (in progress)
+
+- [x] Milestone 4: `src/port_scanner/security/` — the vulnerability
+      matching, risk-scoring, and provider engine. `models.py` (`Host` ->
+      `Service` -> `Finding` -> `Vulnerability`, asset-management-shaped
+      — [Decision 28](DECISIONS.md)); `matching.py` (banner ->
+      product/version, Stage-1 approximate —
+      [Decision 31](DECISIONS.md)); `risk.py` (CVSS -> `RiskLevel`,
+      worst-case aggregation, deterministic recommendations); `cve_db.py`
+      (local SQLite CVE cache); `providers/` (`VulnerabilityProvider`
+      Protocol, `LocalCVEProvider`, `NVDProvider` — both real and
+      tested, including a live check against the actual NVD API);
+      `engine.py` (`assess()`, the shared entrypoint, cache-first +
+      merged-live-providers — [Decision 29](DECISIONS.md)).
+      `scanner.py`/`parsing.py`/`detection.py`/`discovery.py` unchanged.
+      **Not yet wired into `cli.py` or `web/`** — that's the next item.
+- [ ] Milestone 5 (planned): wire `security.engine.assess()` into
+      `cli.py` (a flag) and `web/` (a checkbox + `web/services/
+      assessment_service.py` + `web/api/v1` JSON endpoint), the same way
+      Milestone 2 wired `discover()` in. Resolves the open questions from
+      the approved architecture proposal (CLI flag vs. subcommand, web
+      checkbox vs. separate action, NVD API key).
+- [ ] OSV and Vulners providers (planned, additive — new files
+      implementing `VulnerabilityProvider`, no changes elsewhere; see
+      [Decision 30](DECISIONS.md) for why they weren't built in
+      Milestone 4)
+- [ ] Host discovery, OS detection (planned — new peer modules, same
+      pattern as `detection.py`/`discovery.py`)
+- [ ] Asset inventory, dashboard, reports/export formats (PDF, CSV, JSON),
+      scheduled scans (planned — persistence-dependent; `Host`'s shape is
+      already what would be persisted, see [Decision 28](DECISIONS.md))
+- [ ] AI-assisted analysis (planned — a future `ai/` package consuming
+      `Host`/`Finding` as read-only input; no changes to `security/`
+      needed to add it, see [Decision 33](DECISIONS.md))
+
 Phase 2's remaining item (JSON/file export) and Phase 3's remaining items
 (auth/history/accounts, deployment) are unstarted, matching the "planned"
-section of `README.md`.
+section of `README.md`. Phase 4 has its engine built and tested but not
+yet reachable from either interface.

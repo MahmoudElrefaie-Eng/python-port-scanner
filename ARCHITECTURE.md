@@ -2,29 +2,36 @@
 
 ## Overview
 
-`port-scanner` is evolving from a TCP port scanner into a lightweight
-network discovery platform: not just *which* ports are open, but *what's
-running on them*. It remains a layered application with no third-party
-runtime dependencies for its core:
+`port-scanner` is evolving from a TCP port scanner into a security
+assessment platform: not just *which* ports are open and *what's running
+on them*, but *how risky that is*. It remains a layered application with
+no third-party runtime dependencies for its scanning/discovery core (the
+security layer's live providers are the one place that talks to the
+network beyond the target being scanned):
 
 - **Interface layer** — `src/port_scanner/cli.py`: argument parsing
   (`argparse`), table output formatting, process exit codes. It calls into
-  the shared logic layer below and contains no scanning, parsing, or
-  detection logic of its own.
-- **Shared logic layer** — four independent modules. None depends on
-  another peer in this layer except where noted, and none depends on any
-  interface:
+  the shared logic layer below and contains no scanning, parsing,
+  detection, or assessment logic of its own.
+- **Shared logic layer** — five independent modules/packages. None
+  depends on another peer in this layer except where noted, and none
+  depends on any interface:
   - `src/port_scanner/scanner.py` — the scan engine (`scan_port`,
     `scan_range`). Unmodified since Phase 1.
   - `src/port_scanner/parsing.py` — Nmap-style port-spec parsing
     (`parse_ports`, `_to_port`). Unmodified since Phase 1.
   - `src/port_scanner/detection.py` — service guessing and banner
-    grabbing (`guess_service`, `identify_service`). New in Milestone 3.
-    Depends on nothing else in this layer.
-  - `src/port_scanner/discovery.py` — orchestrates the other three into
-    structured results (`discover`, `PortResult`). New in Milestone 3.
-    The only module in this layer that depends on peers (`scanner.py` and
-    `detection.py`) — see [Decision 20](DECISIONS.md).
+    grabbing (`guess_service`, `identify_service`). Unmodified since
+    Milestone 3. Depends on nothing else in this layer.
+  - `src/port_scanner/discovery.py` — orchestrates the other two into
+    structured results (`discover`, `PortResult`). Unmodified since
+    Milestone 3. Depends on `scanner.py` and `detection.py` — see
+    [Decision 20](DECISIONS.md).
+  - `src/port_scanner/security/` — vulnerability matching and risk
+    scoring (`assess`, `Host`). New in Milestone 4. Depends on
+    `discovery.PortResult`'s *type* only — `discovery.py` has zero
+    knowledge this package exists. See §"`security/`" below and
+    [Decision 27](DECISIONS.md).
 
 Any interface (`cli.py` today; `web/` as of Milestone 2) depends downward
 on `discovery.py` (which in turn depends on `scanner.py` and
@@ -117,6 +124,76 @@ starting point. Two layers, both pure stdlib (`socket`, `ssl`, `re`):
   `identify_service` individually. That's what makes "the CLI and Web UI
   consume exactly the same scanning results" true by construction rather
   than by convention.
+
+### `security/` — vulnerability matching and risk scoring
+
+```
+src/port_scanner/security/
+├── models.py            # Host, Service, Finding, Vulnerability, RiskLevel
+├── matching.py           # banner -> (product, version); dotted-version compare
+├── risk.py                # CVSS -> RiskLevel; worst-case aggregation; recommend()
+├── cve_db.py               # local SQLite CVE cache (stdlib sqlite3 only)
+├── engine.py                # assess() — the shared entrypoint (mirrors discover())
+└── providers/
+    ├── base.py                # VulnerabilityProvider Protocol
+    ├── local_cve.py            # LocalCVEProvider — reads cve_db.py, offline-safe
+    └── nvd.py                   # NVDProvider — live NVD REST API v2.0
+```
+
+Not yet called by `cli.py` or `web/` — Milestone 4's scope is this engine
+only (see ROADMAP.md); a future milestone wires it in, calling `assess()`
+exactly the way `cli.py` already calls `discover()`.
+
+- **`assess(target, port_results, *, cache, providers, max_workers) -> Host`**
+  is the shared entrypoint, same role as `discover()` one layer up. It
+  takes `discovery.discover()`'s own output as input — the dependency
+  runs one direction only; `discovery.py` has no import of, or awareness
+  of, this package. See [Decision 27](DECISIONS.md).
+- **Data model is `Host` -> `Service` -> `Finding` -> `Vulnerability`**,
+  not a flat list, on purpose: a `Host` is what a future Asset Inventory
+  feature would persist and re-assess over time; `Vulnerability` (the CVE
+  record) is kept separate from `Finding` (that record matched against
+  one service) so the same CVE found on many hosts isn't duplicated data.
+  `Service` composes a `PortResult` by value — `discovery.py`'s type is
+  never modified or subclassed. All types are frozen dataclasses using
+  tuples (not lists) for collections, so they're genuinely immutable, not
+  just nominally. See [Decision 28](DECISIONS.md).
+- **`VulnerabilityProvider` is a `Protocol`, not a base class** — any
+  object with a `.name` and a `.lookup(product, version)` qualifies. Two
+  are implemented: `LocalCVEProvider` (SQLite, offline, always tried
+  first) and `NVDProvider` (live NVD REST API v2.0, its response schema
+  parsed against the *real* API — verified live while building this, not
+  guessed). OSV and Vulners (both named in the approved design) are not
+  implemented in Milestone 4 — adding either is a new file implementing
+  the same three-member Protocol, zero changes elsewhere. See
+  [Decision 29](DECISIONS.md) for the scope call and
+  [Decision 30](DECISIONS.md) for the multi-provider merge strategy.
+- **`cve_db.py` is a cache, not application data.** Populated as a side
+  effect of live lookups (`NVDProvider` writes through to it), read first
+  by `LocalCVEProvider` on every lookup. Deliberately a separate SQLite
+  file from wherever a future auth/history feature's Postgres instance
+  ends up — see [Decision 29](DECISIONS.md).
+- **`matching.py` is "Stage 1" approximate matching, not full CPE
+  binding** — a handful of regexes covering the banner shapes
+  `detection.py`'s grabbers actually produce, plus dotted-integer version
+  comparison. Documented, known-approximate; see
+  [Decision 31](DECISIONS.md) for the shape of the gap and why silence
+  (no finding) is preferred over a low-confidence guess when product
+  identity can't be established.
+- **Every provider call is wrapped in a broad `except Exception`**, at
+  both the provider level (`NVDProvider`/`LocalCVEProvider` never raise
+  out of `.lookup()`) and the orchestrator level (`engine.py` doesn't
+  trust that guarantee blindly). A provider failing — network error,
+  malformed response, a locked local database — degrades that one
+  service to "no findings," never fails the assessment. Same philosophy
+  as `detection.identify_service()` (Decision 23), extended to this
+  layer. See [Decision 32](DECISIONS.md).
+- **No AI code, no `ai/` package, in this milestone** — not asked for.
+  What *is* deliberate: `assess()`'s output is a plain, frozen,
+  JSON/dict-serializable `Host` graph. A future `ai/` package would take
+  a `Host` (or `list[Finding]`) as read-only input and produce its own
+  output type, without importing from or modifying anything in
+  `security/`. See [Decision 33](DECISIONS.md).
 
 ### `cli.py` — interface
 
@@ -260,3 +337,14 @@ Design points:
    have had to either import from another *interface* module or duplicate
    the parsing logic. Extracting it to `parsing.py` means every interface
    depends only on shared logic modules — never on another interface.
+6. **Testing genuinely-external services without depending on them.**
+   `tests/test_detection.py` already tests protocol parsing against fake
+   local TCP servers rather than the real internet; `tests/test_security_
+   providers.py` extends the same idea one layer up — `NVDProvider` is
+   tested against a small local `http.server` instance serving canned
+   NVD-shaped JSON, not the real NVD API (which would make CI slow,
+   flaky, and rate-limit-dependent). The one difference from the rest of
+   this codebase's "real sockets, never mock" convention: here the
+   *remote counterpart itself* (NVD) is what's faked, not our own
+   socket-handling code — the distinction is "don't mock what we
+   control," not "never fake anything."

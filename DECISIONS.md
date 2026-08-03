@@ -385,3 +385,175 @@ authentication/history/accounts need a database, and building service
 detection first meant that decision didn't have to be made under time
 pressure before it was needed — `web/api/v1/router.py` and
 `web/services/` already exist and are unaffected by this reordering.
+
+## 27. New package named `security/`, not `assessment/` — and scoped narrower than the name
+
+**Decision:** The Milestone 4 package is `src/port_scanner/security/`,
+renamed from `assessment/` (the name used while the architecture was
+being designed) before any code was written against it.
+
+**Rationale:** Direct instruction: the long-term vision extends past
+vulnerability assessment into reporting, compliance, threat intelligence,
+and AI-assisted analysis, none of which "assessment" describes well as a
+home. `security/` is deliberately broader than what it currently
+contains — today it's matching, risk scoring, and a provider abstraction;
+reporting/compliance/threat-intel/AI are future siblings under the same
+package (see decision 33 for how AI specifically stays a sibling, not a
+modification). Renaming before writing code avoided the alternative of
+renaming a populated package (import churn, doc churn) a milestone later.
+
+## 28. Data model: `Host` -> `Service` -> `Finding` -> `Vulnerability`, not a flat result list
+
+**Decision:** `security/models.py` defines four frozen dataclasses in a
+strict containment hierarchy — `Host` holds `Service`s, each `Service`
+holds `Finding`s, each `Finding` references a `Vulnerability`. `Service`
+composes a `discovery.PortResult`'s fields by value; it does not import,
+subclass, or modify `PortResult` itself. Every collection field is a
+`tuple`, never a `list` — a `frozen=True` dataclass with a `list` field
+is still mutable through that field, which would make "frozen" a lie.
+
+**Rationale:** Direct instruction: design with future Asset Management in
+mind, evolving toward Host -> Services -> Vulnerabilities rather than
+per-scan isolated results. Concretely, this shape is what makes an Asset
+Inventory feature a persistence problem later, not a redesign — a `Host`
+*is* what gets persisted and re-assessed over time; nothing about its
+shape assumes it was just produced by a single scan. Separating
+`Vulnerability` (the CVE record — description, CVSS, source; the same
+data regardless of what it was found on) from `Finding` (the fact that
+*this* vulnerability was matched against *this* service, with its own
+confidence/recommendation) avoids duplicating CVE description text and
+CVSS data across every host a given CVE happens to affect — the same
+normalization a real vulnerability-management database would apply, even
+though nothing is persisted to a database yet.
+
+## 29. Provider strategy: local cache first, then merge all configured live providers
+
+**Decision:** `engine.assess()` takes two separate provider arguments —
+a single `cache` (tried first for every service) and a `providers`
+sequence (only queried if the cache had nothing, and merged/deduplicated
+by CVE ID rather than stopping at the first one with results).
+`LocalCVEProvider` fills the `cache` role; `NVDProvider` is the one
+concrete `providers` implementation shipped in Milestone 4. Both
+implement the same `VulnerabilityProvider` Protocol (`providers/base.py`)
+— `.name` + `.lookup(product, version) -> list[Vulnerability]` — so OSV,
+Vulners, or any future source (all explicitly named in the approved
+design) are new files implementing that Protocol, not changes to
+`engine.py` or anything that calls it.
+
+**Rationale:** Direct instruction to support multiple providers "from the
+beginning." The cache/live split (rather than one flat list of providers
+tried in order) matters because the two roles aren't symmetric:
+`LocalCVEProvider` *is* a cache of what live providers have already
+found — checking it first is a latency/rate-limit optimization, not an
+independent data source — while distinct live providers (NVD, OSV,
+Vulners) can have genuinely non-overlapping coverage and should be
+combined, not treated as alternatives where only the first answer counts.
+A pure first-wins chain would silently miss a CVE that OSV knows about
+but NVD's specific response page didn't surface. The local CVE cache
+(`cve_db.py`, SQLite) is deliberately a separate store from wherever a
+future auth/scan-history feature's Postgres instance ends up — it's
+public reference data with a different lifecycle (periodically refreshed
+from upstream, identical for every user) than per-user application data,
+and it must work with zero network/database services in offline mode,
+which a shared Postgres instance couldn't guarantee.
+
+## 30. Milestone 4 ships two working providers (Local, NVD), not four
+
+**Decision:** `LocalCVEProvider` and `NVDProvider` are fully implemented,
+tested (including against the real live NVD API — see this file's
+testing note under decision 32), and validated in this milestone. OSV and
+Vulners are not implemented, despite being named in the approved
+architecture.
+
+**Rationale:** "Design to support multiple providers from the beginning"
+was read as a requirement on the *abstraction* (decision 29's Protocol +
+merge strategy), not a mandate to ship four live integrations in one
+milestone — the Protocol already proves it generalizes with two
+independent implementations (one fully offline, one fully live), and a
+third/fourth adds no new architectural evidence, only more code to write
+and maintain without a data source to validate it against (Vulners
+requires an API key nobody has supplied; testing it live isn't possible
+right now). This is the same scope-cut shape as decision 22 in Milestone
+3 (9 of 16 possible banner grabbers implemented, the rest deferred as a
+documented, easy-to-extend gap) — applied one milestone later to the same
+kind of "N interchangeable implementations of one Protocol" situation.
+
+## 31. Version matching stays "Stage 1" approximate; silence over a low-confidence guess
+
+**Decision:** `matching.py` extracts `(product, version)` via a small,
+explicit set of regexes matching the banner shapes `detection.py`'s
+grabbers actually produce (not general CPE binding), and version
+comparison is simple dotted-integer comparison (not full SemVer/PEP 440
+semantics). `providers/nvd.py`'s CPE matching requires an exact
+(case-insensitive) product-field match against a `cpeMatch` entry's CPE
+string before a `Vulnerability` is surfaced at all — there is no
+"probably relevant, unconfirmed" fallback bucket. A `Finding.confidence`
+of `"confirmed"` vs. `"product"` reflects only whether a *version* was
+available to check against a matched product's range; if the product
+itself can't be matched by name, nothing is reported for it.
+
+**Rationale:** Real CPE binding (turning an arbitrary banner into the
+correct formal CPE identifier, handling every vendor's naming
+inconsistency) is a genuinely hard, open-ended problem — this was called
+out as a known limitation in the approved architecture proposal, not
+something to solve fully now. The one concrete mismatch actually observed
+(Apache HTTP Server's CPE product is `http_server`, not `apache`) is
+handled via a small explicit alias table
+(`matching.cpe_product_candidates`) rather than a general solution.
+Choosing *not* to report a fuzzy, keyword-only "possible" match when the
+product can't be confirmed was a deliberate call in favor of the
+lower-risk failure mode for a security tool: a missed finding (false
+negative) is a known, documented gap; a fabricated-looking finding
+against the wrong product (false positive) actively misleads whoever
+reads the report. Verified live against the real NVD API while building
+this (OpenSSH 3.4p1 correctly returns 58 real CVEs including the
+well-known CVE-2003-0693 at CVSS 10.0; OpenSSH 9.6p1 returns a much
+smaller, plausible set) — this is working, not just designed.
+
+## 32. Every provider call is caught broadly, at two layers
+
+**Decision:** `LocalCVEProvider.lookup()` and `NVDProvider.lookup()` each
+wrap their own body in `except Exception: return []`. `engine.py`'s
+`_lookup()` *also* wraps every call to `cache.lookup()` and each
+`provider.lookup()` in its own broad `except Exception`, rather than
+trusting that every `VulnerabilityProvider` implementation upholds its
+own never-raise contract.
+
+**Rationale:** Same reasoning as decision 23 (`detection.identify_
+service`), extended one layer up: a vulnerability lookup touches a remote
+service, a local database file that might be locked or corrupt, or
+(structurally, since `VulnerabilityProvider` is a Protocol anyone can
+implement) a future third-party provider this codebase doesn't control
+the internals of. The orchestrator catching broadly too is deliberate
+defense-in-depth, not redundant: a provider that violates its own
+contract (a bug in a future OSV/Vulners implementation, say) must still
+not be able to take down an entire assessment over one service's lookup.
+Testing note: `NVDProvider` is tested against a local fake HTTP server,
+not the real NVD API (see ARCHITECTURE.md point 6 under "why business
+logic is separated") — but it was also verified live, manually, against
+the real API while building it, specifically to confirm the parsing logic
+matches NVD's actual (not assumed) response schema, including its
+`configurations[].nodes[].cpeMatch[]` version-range structure.
+
+## 33. AI-readiness is a data-shape guarantee, not a module built now
+
+**Decision:** No `ai/` package, no AI-related code, ships in Milestone 4.
+What ships instead is the constraint that made it into decision 28: every
+type `assess()` returns or consumes is a frozen, plain dataclass with no
+behavior beyond its own fields — no methods that mutate state, nothing
+that assumes a particular consumer (HTML template, JSON serializer,
+future AI prompt).
+
+**Rationale:** Direct instruction: future AI-powered analysis must be
+addable as a separate module without modifying the core scanning or
+security engine. A dataclass-only, side-effect-free output contract is
+what makes that true by construction — a future `ai/` package (or a
+`reporting/` package, equally) takes a `Host` as read-only input and
+produces its own output type; it never needs write access to, or
+subclassing rights over, anything in `security/`. This is deliberately
+the *cheapest possible* way to satisfy the requirement: it costs nothing
+to build (frozen dataclasses were already the right choice per decision
+28) and doesn't require guessing today what an AI module would actually
+need — that guess would likely be wrong and would itself become
+placeholder code, which this project has consistently avoided building
+ahead of an actual requirement.

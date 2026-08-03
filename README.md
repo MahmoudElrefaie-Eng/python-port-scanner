@@ -36,12 +36,16 @@ suite and CI.
 - ✅ Automated testing with GitHub Actions
 - ✅ Web interface: server-rendered scan form (`GET /`, `POST /scan`) — see below
 - ✅ Service detection & banner grabbing — shared by the CLI and the web UI, see below
+- ✅ Vulnerability matching & risk scoring engine (`security/`) — built and
+  tested, **not yet reachable from the CLI or web UI** (Milestone 5)
 - 🚧 Planned features:
+  - Wiring the vulnerability-assessment engine into the CLI and web UI
+  - Additional vulnerability providers (OSV, Vulners)
   - JSON / file export output formats
   - Banner grabbing for the remaining services that currently only get a
     port-based guess (DNS, LDAP, SMB, RDP, PostgreSQL, MongoDB, NTP)
   - Web interface: authentication, scan history, user accounts (deferred
-    in favor of service detection — see [`DECISIONS.md`](DECISIONS.md#26-roadmap-pivot-service-detection-before-authenticationaccountshistory))
+    in favor of this direction — see [`DECISIONS.md`](DECISIONS.md#26-roadmap-pivot-service-detection-before-authenticationaccountshistory))
 
 ## Features
 
@@ -58,16 +62,24 @@ suite and CI.
 - **Banner grabbing** — for 9 of those services (SSH, FTP, SMTP, POP3,
   IMAP, HTTP, HTTPS, MySQL, Redis), reads or requests a real banner
   (`OpenSSH_9.6`, `nginx/1.18.0`, a MySQL version string, ...) instead of
-  just guessing from the port. No Nmap, no external APIs, no
-  vulnerability scanning — lightweight, protocol-aware probes only. A
-  banner grab failing never fails the scan; it falls back to `Unknown`.
+  just guessing from the port — no Nmap, lightweight protocol-aware
+  probes only. A banner grab failing never fails the scan; it falls back
+  to `Unknown`.
+- **Vulnerability matching & risk scoring** (`src/port_scanner/security/`)
+  — matches a detected service's version against known CVEs (a local
+  SQLite cache checked first, the live NVD database on a cache miss),
+  scores risk from CVSS (worst-case per host), and generates a
+  deterministic remediation suggestion. Built around a
+  `VulnerabilityProvider` protocol so more sources (OSV, Vulners, ...)
+  are additive, not a rewrite. **Not yet wired into the CLI or web UI.**
 - **Configurable timeout and concurrency** — tune `--timeout` and
   `--workers` per scan for speed vs. reliability trade-offs.
 - **Scriptable exit codes** — `0` for a completed scan, `2` for invalid
   input — safe to use in shell pipelines and automation.
-- **Fully tested** — 68 tests covering the scan engine, port-spec parser,
-  service detection, banner grabbing, CLI, and web interface, run
-  automatically on every push via GitHub Actions.
+- **Fully tested** — 137 tests covering the scan engine, port-spec parser,
+  service detection, banner grabbing, vulnerability matching/risk
+  scoring, CLI, and web interface, run automatically on every push via
+  GitHub Actions.
 
 ## Architecture
 
@@ -203,6 +215,13 @@ python-port-scanner/
 │   ├── parsing.py      # parse_ports (Nmap-style port-spec parsing)
 │   ├── detection.py    # guess_service / identify_service (service ID + banners)
 │   ├── discovery.py    # discover() — the shared entrypoint (scan + detect)
+│   ├── security/       # assess() — vulnerability matching + risk scoring
+│   │   ├── models.py       # Host -> Service -> Finding -> Vulnerability
+│   │   ├── matching.py      # banner -> (product, version)
+│   │   ├── risk.py           # CVSS -> RiskLevel, recommendations
+│   │   ├── cve_db.py          # local SQLite CVE cache
+│   │   ├── engine.py           # assess() — not yet called by cli.py/web/
+│   │   └── providers/           # LocalCVEProvider, NVDProvider (+ Protocol)
 │   ├── cli.py          # command-line interface (table output)
 │   └── web/            # FastAPI interface (see Web Interface, above)
 │       ├── app.py          # create_app() factory
@@ -253,6 +272,10 @@ developer would locally (`pip install -e ".[dev,web]"`). See
 - [x] Web interface — Milestone 3: service detection & banner grabbing
 - [ ] Web interface — auth, scan history, user accounts (deferred)
 - [ ] Deployment
+- [x] Security assessment engine (`security/`) — vulnerability matching,
+      risk scoring, multi-provider abstraction (Local + NVD working; OSV/
+      Vulners designed for, not yet built)
+- [ ] Security assessment — wired into the CLI and web UI (Milestone 5)
 
 ## Documentation
 

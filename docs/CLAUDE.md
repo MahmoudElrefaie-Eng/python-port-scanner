@@ -21,14 +21,18 @@ one conversation:
 2. `git status` — check for uncommitted work; never discard it silently.
 3. Read `src/port_scanner/scanner.py`, `src/port_scanner/parsing.py`,
    `src/port_scanner/detection.py`, `src/port_scanner/discovery.py`,
-   `src/port_scanner/cli.py`, and `src/port_scanner/web/` (FastAPI
-   interface — skeleton, scan flow, and service detection as of
-   Milestone 3; no auth/database/async-queue yet, deliberately deferred,
-   see `ROADMAP.md` and `ARCHITECTURE.md`) — this is the entire
-   application; all are short enough to read in full.
+   `src/port_scanner/security/` (vulnerability matching & risk scoring —
+   built and tested as of Milestone 4, **not yet called by `cli.py` or
+   `web/`**), `src/port_scanner/cli.py`, and `src/port_scanner/web/`
+   (FastAPI interface — skeleton, scan flow, and service detection; no
+   auth/database/async-queue yet, deliberately deferred; see `ROADMAP.md`
+   and `ARCHITECTURE.md`) — this is the entire application; all are short
+   enough to read in full.
 4. Read `tests/test_scanner.py`, `tests/test_cli.py`,
-   `tests/test_detection.py`, `tests/test_discovery.py`, and
-   `tests/test_web.py` — the tests define the contract the code must keep.
+   `tests/test_detection.py`, `tests/test_discovery.py`,
+   `tests/test_security_*.py` (matching, risk, cve_db, providers, engine),
+   and `tests/test_web.py` — the tests define the contract the code must
+   keep.
 5. Read `pyproject.toml` — authoritative source for version, dependencies,
    Python support range, and the `port-scanner` console-script entry point.
 6. Read `README.md` — user-facing description of features and usage.
@@ -61,17 +65,19 @@ There is no linter, formatter, or type-checker configured in this repo today
 ## 4. Coding standards (as already practiced in this codebase)
 
 - **Stdlib only for the base install and core.** `scanner.py`, `parsing.py`,
-  `detection.py`, `discovery.py`, and `cli.py` depend on nothing outside
-  the Python standard library (`socket`, `ssl`, `re`, `argparse`,
-  `concurrent.futures`, `functools`, `typing`); the base `pip install -e .`
-  (no extras) stays dependency-free. Don't add a
-  runtime dependency to those three files, or to `[project] dependencies`,
-  without discussing it with the user first. `src/port_scanner/web/` is the
-  one deliberate exception — it depends on the `web` extra
-  (`fastapi`, `uvicorn[standard]`, `jinja2`, `python-multipart`), approved
-  specifically for that interface; even there, don't add a new dependency
-  beyond what's already approved without asking first (see decision 14 in
-  `DECISIONS.md` for an example of choosing *not* to add one).
+  `detection.py`, `discovery.py`, `security/` (including its live NVD
+  client — `urllib.request`, not `httpx`/`requests`), and `cli.py` depend
+  on nothing outside the Python standard library (`socket`, `ssl`, `re`,
+  `sqlite3`, `urllib`, `argparse`, `concurrent.futures`, `functools`,
+  `typing`); the base `pip install -e .` (no extras) stays
+  dependency-free. Don't add a runtime dependency to any of those, or to
+  `[project] dependencies`, without discussing it with the user first.
+  `src/port_scanner/web/` is the one deliberate exception — it depends on
+  the `web` extra (`fastapi`, `uvicorn[standard]`, `jinja2`,
+  `python-multipart`), approved specifically for that interface; even
+  there, don't add a new dependency beyond what's already approved
+  without asking first (see decision 14 in `DECISIONS.md` for an example
+  of choosing *not* to add one).
 - **Keep business logic and interface separated.** Scanning logic lives in
   `scanner.py`; argument parsing, spec parsing, and I/O live in `cli.py`.
   Don't let `scanner.py` import `argparse` or call `print`/`sys.exit`.
@@ -93,6 +99,18 @@ optionally listen) rather than mocking `socket`. This is intentional: it
 verifies actual connect behavior instead of asserting against a mocked
 approximation of it. Follow this pattern for new scanner tests. Run `pytest`
 before considering any change to `src/` complete.
+
+For code that talks to a genuinely external, third-party service
+(`security/providers/nvd.py`, the only current example): don't mock
+`urllib`, and don't hit the real service in the test suite either — spin
+up a small local `http.server` instance serving canned responses (see
+`tests/test_security_providers.py`) and point the client at it via a
+constructor parameter (`base_url=`). This is real HTTP over a real local
+socket, same principle as the rest of this section, just faking the
+*remote counterpart* instead of our own code. A handful of tests may also
+exercise the real live API manually while developing/reviewing such a
+change (not as part of the automated suite) to confirm the response
+schema is actually being parsed correctly, not just an assumed shape.
 
 ## 6. Commit workflow
 
