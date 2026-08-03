@@ -6,12 +6,16 @@ Stable v1.0.0 CLI release. Core scanning engine, CLI, packaging, tests, and
 CI are all complete and green (per the checklist in `README.md` and the
 GitHub Actions workflow at `.github/workflows/ci.yml`).
 
-A FastAPI web interface skeleton (`src/port_scanner/web/`) now exists as a
-peer to `cli.py` — see [`ARCHITECTURE.md`](ARCHITECTURE.md). It has no scan
-logic wired in yet: app factory, env-var configuration, centralized
-logging, global exception handling, `/api/v1` versioning scaffold,
-`/health`, and customized OpenAPI docs only (`tests/test_web.py`, 10 tests).
-Install it with `pip install -e ".[dev,web]"`.
+A FastAPI web interface (`src/port_scanner/web/`) now exists as a peer to
+`cli.py` — see [`ARCHITECTURE.md`](ARCHITECTURE.md). Milestone 1 (app
+factory, env-var configuration, centralized logging, global exception
+handling, `/api/v1` versioning scaffold, `/health`, customized OpenAPI
+docs) and Milestone 2 (a server-rendered scan flow: `GET /` and
+`POST /scan`, Jinja2 templates, a plain CSS stylesheet, validation errors
+shown inline instead of raw exceptions) are both complete. No auth,
+database, service detection, or async job queue yet.
+`tests/test_web.py` has 23 tests (40 total across the suite). Install with
+`pip install -e ".[dev,web]"`, run with `uvicorn port_scanner.web.app:app`.
 
 ## Version
 
@@ -43,14 +47,15 @@ Requires Python `>=3.10`; CI runs the suite on Python 3.14.
 ## Current milestone
 
 v1.0.0 stable CLI release is done. In parallel, Phase 3's web interface is
-underway: Milestone 1 (FastAPI skeleton) is complete; Milestone 2 (the
-actual scan flow behind it) has not started.
+underway: Milestone 1 (FastAPI skeleton) and Milestone 2 (server-rendered
+scan flow) are both complete. Milestone 3 (auth, scan history, user
+accounts) has not started and needs explicit approval before it begins,
+per the working agreement in this repo.
 
 ## Next objective
 
-Web interface Milestone 2: wire `GET /` and `POST /scan` (server-rendered
-HTML form, no JS) to `parse_ports`/`scan_range`, add `templates/` and
-`static/css/style.css`. Requires explicit approval before starting per the
-working agreement in this repo. Separately, Phase 2 (service/banner
-detection, additional output formats) remains unstarted and available to
-pick up instead — see [`ROADMAP.md`](ROADMAP.md).
+Wait for direction on what's next: web interface Milestone 3 (auth/
+history/accounts — needs a database, deliberately deferred until now, see
+[`ROADMAP.md`](ROADMAP.md)), or Phase 2 (service/banner detection,
+additional output formats for the CLI), which remains unstarted and
+independent of the web work.

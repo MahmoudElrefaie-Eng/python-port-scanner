@@ -21,3 +21,6 @@ port-scanner = "port_scanner.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+port_scanner = ["web/templates/*.html", "web/static/css/*.css"]

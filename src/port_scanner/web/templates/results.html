@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block title %}Scan results for {{ result.target }} &mdash; Port Scanner{% endblock %}
+
+{% block content %}
+<section class="intro">
+  <h1>Results for {{ result.target }}</h1>
+  <p class="scan-meta">
+    {{ result.ports_scanned }} port{{ "s" if result.ports_scanned != 1 else "" }} scanned
+    in {{ "%.2f"|format(result.elapsed_seconds) }}s
+    &middot; timeout {{ result.timeout }}s &middot; {{ result.workers }} workers
+  </p>
+</section>
+
+{% include "scan.html" %}
+
+<section class="card results">
+  {% if result.open_ports %}
+  <h2>{{ result.open_ports|length }} open port{{ "s" if result.open_ports|length != 1 else "" }}</h2>
+  <table class="results-table">
+    <thead>
+      <tr><th>Port</th><th>Protocol</th><th>State</th></tr>
+    </thead>
+    <tbody>
+      {% for port in result.open_ports %}
+      <tr>
+        <td>{{ port }}</td>
+        <td>tcp</td>
+        <td><span class="state state--open">open</span></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="no-results">No open ports found on {{ result.target }} in the scanned range.</p>
+  {% endif %}
+</section>
+{% endblock %}

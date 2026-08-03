@@ -16,7 +16,7 @@ dependencies:
   - `src/port_scanner/parsing.py` — Nmap-style port-spec parsing
     (`parse_ports`, `_to_port`).
 
-Any interface (`cli.py` today; `web/` as of Milestone 1 — see
+Any interface (`cli.py` today; `web/` as of Milestone 2 — see
 [`ROADMAP.md`](ROADMAP.md)) depends downward on `scanner.py` and
 `parsing.py`. Interfaces never depend on each other.
 
@@ -68,24 +68,35 @@ flowchart TD
   exit code. This is the function exposed as the `port-scanner` console
   script entry point (`pyproject.toml`: `port-scanner = "port_scanner.cli:main"`).
 
-### `web/` — FastAPI interface (skeleton as of Milestone 1)
+### `web/` — FastAPI interface
 
 A second interface, peer to `cli.py`, structured as a small package rather
 than a single module:
 
 ```
 src/port_scanner/web/
-├── app.py              # create_app() factory; module-level `app` for uvicorn
+├── app.py               # create_app() factory; module-level `app` for uvicorn
 ├── core/
-│   ├── config.py        # Settings, sourced from PORT_SCANNER_* env vars
-│   ├── logging.py        # configure_logging() — one format/handler process-wide
-│   └── exceptions.py      # AppError + global exception handlers
+│   ├── config.py         # Settings, sourced from PORT_SCANNER_* env vars
+│   ├── logging.py         # configure_logging() — one format/handler process-wide
+│   ├── exceptions.py       # AppError + global exception handlers
+│   └── templating.py        # shared Jinja2Templates instance
 ├── api/v1/
-│   └── router.py          # api_router, mounted at settings.api_v1_prefix
+│   └── router.py           # api_router, mounted at settings.api_v1_prefix (empty scaffold)
 ├── routes/
-│   └── health.py           # GET /health — deliberately outside /api/v1
-└── schemas/
-    └── health.py            # HealthResponse
+│   ├── health.py            # GET /health — outside /api/v1
+│   └── pages.py               # GET / and POST /scan — the server-rendered UI
+├── services/
+│   └── scan_service.py         # run_scan(): the only place web/ calls scanner.py/parsing.py
+├── schemas/
+│   ├── health.py                # HealthResponse
+│   └── scan.py                    # ScanFormData, ScanResultView
+├── templates/
+│   ├── base.html                   # shared layout (header/nav/footer, links style.css)
+│   ├── scan.html                    # the <form> — a partial included by index.html and results.html
+│   ├── index.html                    # GET / — extends base, includes scan.html
+│   └── results.html                   # POST /scan success — extends base, includes scan.html + a results table
+└── static/css/style.css                # hand-written CSS, no framework, no JS
 ```
 
 Design points:
@@ -95,28 +106,60 @@ Design points:
   specific configuration without mutating process environment variables.
   `app.py` still exposes a module-level `app = create_app()` so
   `uvicorn port_scanner.web.app:app` works unchanged.
-- **`/health` sits outside `/api/v1`.** Load balancers and orchestrators
-  probe it on a fixed path; its contract shouldn't move when the business
-  API version bumps. Versioned endpoints mount under `settings.api_v1_prefix`
-  via `api/v1/router.py`, which is intentionally empty until an endpoint is
-  added — the versioning scaffold exists so wiring `app.py` never needs to
-  change again once endpoints (e.g. the scan endpoint) land in Milestone 2.
-- **Global exception handling has two tiers.** An `AppError` base class
-  (for future domain errors — auth failures, scan-job errors, etc. — to
-  declare their own `status_code`/`detail`) and a catch-all `Exception`
-  handler that logs the full traceback server-side and returns an opaque
-  500, so a bug never leaks internals to a client. FastAPI's own defaults
-  for `HTTPException` and `RequestValidationError` are left untouched.
+- **`/health` and the UI pages sit outside `/api/v1`.** Load balancers
+  probe `/health` on a fixed path; `GET /`/`POST /scan` are the UI, not a
+  JSON API contract — neither should move when the business API version
+  bumps. Versioned endpoints mount under `settings.api_v1_prefix` via
+  `api/v1/router.py`, which is intentionally still empty — a future JSON
+  API for the same scan capability would live there, without touching the
+  UI routes.
+- **Global exception handling has two tiers**, for the JSON side of the
+  app. An `AppError` base class (for future domain errors — auth
+  failures, scan-job errors, etc. — to declare their own
+  `status_code`/`detail`) and a catch-all `Exception` handler that logs
+  the full traceback server-side and returns an opaque 500, so a bug
+  never leaks internals to a client. FastAPI's own defaults for
+  `HTTPException` and `RequestValidationError` are left untouched. The
+  scan form has its *own*, separate error path (below) because its
+  errors need to render as HTML, not JSON.
 - **Configuration has no third-party dependency.** `core/config.py` is a
   plain `dataclass` reading `PORT_SCANNER_*` environment variables — no
   `pydantic-settings`. This follows the same reasoning as decision 5 in
   [`DECISIONS.md`](DECISIONS.md): don't add a dependency a feature doesn't
   actually need yet.
-- **No scan logic wired in.** As of Milestone 1, `web/` does not import
-  `scanner.py` or call `parse_ports`/`scan_range` anywhere — only the
-  skeleton (config, logging, exceptions, versioning, `/health`, customized
-  OpenAPI docs) exists. The scan-facing routes (`GET /`, `POST /scan`,
-  `templates/`, `static/`) are a later milestone.
+- **`services/scan_service.py` is the only bridge to the scanning core.**
+  `routes/pages.py` never imports `parse_ports`/`scan_range` directly —
+  it calls `run_scan(form)`, which does. This keeps the interface layer
+  thin (HTTP concerns only: form parsing, template selection, status
+  codes) and keeps the "interfaces never duplicate business logic" rule
+  from [Decision 11](DECISIONS.md) enforceable by inspection: if a second
+  web route ever needs to run a scan, it calls `run_scan` too, instead of
+  re-deriving the call to `scan_range`.
+- **Scan-form errors render as HTML, not JSON.** `run_scan` raises
+  `ScanFormError` (a `ValueError` subclass) for anything the user can fix
+  — a bad port spec, an out-of-range timeout, an unresolvable target.
+  `routes/pages.py` catches it locally and re-renders `index.html` with
+  the message inline and the submitted values still filled in (a "sticky"
+  form) — it does *not* go through the JSON `AppError`/global-exception
+  path above, which exists for a future JSON API, not for a page a human
+  is looking at. Genuine bugs (not `ScanFormError`) still fall through to
+  the global `Exception` handler.
+- **The scan form has bounds the CLI doesn't.** `scan_service.py` caps
+  ports-per-scan, timeout, and worker count — see
+  [Decision 16](DECISIONS.md). The CLI has no such caps because argv is
+  typed by whoever runs it locally; this form is reachable by anyone who
+  can reach the server.
+- **`scan.html` is a partial, not a page.** It contains only the `<form>`
+  and is `{% include %}`d by both `index.html` (empty/sticky form) and
+  `results.html` (sticky form + a results table below it), so the field
+  markup exists exactly once.
+- **Synchronous route handlers, not `async def`.** `scan_range` blocks the
+  calling thread until every port in the batch has been probed. Starlette
+  runs a plain `def` route in a worker thread automatically
+  (`run_in_threadpool`); had `submit_scan` been `async def` and called
+  `run_scan` directly, a single in-flight scan would block the entire
+  event loop — every other request the server is handling — for the
+  scan's duration.
 
 ## Why business logic is separated from the interface
 
@@ -125,9 +168,9 @@ Design points:
    through `argparse` or capturing stdout. `cli.py` is tested separately for
    its own parsing wiring and exit-code behavior.
 2. **Reusability.** Nothing in `scanner.py` or `parsing.py` assumes it's
-   being driven from a terminal. The same functions could back a different
-   interface — e.g. the web interface listed as a planned item in
-   [`ROADMAP.md`](ROADMAP.md) — without any change to either module.
+   being driven from a terminal. The same functions now also back the web
+   interface (`web/services/scan_service.py` calls both, unchanged) — see
+   [`ROADMAP.md`](ROADMAP.md).
 3. **Safety of the concurrency model.** Because `scan_port` is pure with
    respect to shared state (it owns only its own socket), `scan_range` can
    run it across a thread pool with zero locking. Mixing in CLI/I/O concerns

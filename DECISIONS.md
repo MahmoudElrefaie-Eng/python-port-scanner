@@ -188,3 +188,72 @@ genuinely unhandled bugs (never leak an internal exception message to a
 client) and a clean path for future domain-specific errors (auth failures,
 scan-job errors) to map to HTTP responses without each route needing its
 own `try`/`except`.
+
+## 16. Scan-form validation errors render as HTML inline, bypassing the JSON exception path
+
+**Decision:** `services/scan_service.run_scan()` raises `ScanFormError` (a
+`ValueError` subclass) for bad input — empty target, invalid port spec,
+out-of-range timeout/workers, unresolvable host, `OSError` during the scan.
+`routes/pages.py`'s `submit_scan()` catches `ScanFormError` itself and
+re-renders `index.html` with the message inline and the submitted values
+preserved (HTTP 422). It does *not* raise `AppError` or let the error reach
+the global `Exception` handler from decision 15, which returns JSON.
+
+**Rationale:** `AppError`/the global handler exist for API consumers that
+expect a JSON body back. `POST /scan` is submitted by an HTML `<form>` from
+a browser — a JSON error response would render as a blank page or raw text,
+exactly the "expose internal exceptions" outcome the milestone's
+requirements call out to avoid. Keeping this translation local to
+`submit_scan()` (rather than, say, teaching the global handler to detect
+"was this an HTML request") keeps the two error paths (JSON API vs. HTML
+form) simple and independently understandable, at the cost of one small
+`try`/`except` per form-submitting route — an acceptable trade at this
+scale, revisit if more form endpoints appear.
+
+## 17. Public scan form has input bounds the CLI doesn't need
+
+**Decision:** `services/scan_service.py` rejects (with a `ScanFormError`,
+not a crash) more than `MAX_PORTS_PER_SCAN = 1024` ports per request,
+`timeout` outside `[0.1, 10.0]` seconds, and `workers` outside `[1, 200]`.
+`parse_ports`/`scan_range` themselves are unchanged and enforce none of
+this.
+
+**Rationale:** The CLI's `--timeout`/`--workers`/`--ports` are typed by
+whoever is running the tool on their own machine against a target they
+chose — there's no one to protect them from. `POST /scan` is reachable by
+anyone who can reach the server, so an unbounded `ports=1-65535` (65,535
+sockets) or `workers=1000000` (attempting to spin up a thread pool of that
+size) is a trivial resource-exhaustion vector against the server itself,
+not just the scan target. These bounds are basic input validation, not a
+substitute for the auth/rate-limiting this milestone deliberately leaves
+out — see [`ROADMAP.md`](ROADMAP.md) for what's still planned.
+
+## 18. `scan.html` is a Jinja2 partial, included by both `index.html` and `results.html`
+
+**Decision:** The `<form>` markup (target/ports/timeout/workers fields,
+the error banner) lives in its own template, `scan.html`, which does not
+extend `base.html` and is never rendered directly by a route. `index.html`
+and `results.html` each `{% include "scan.html" %}` it.
+
+**Rationale:** `GET /` (empty form) and a successful `POST /scan` (sticky
+form + a results table below it) show the same form. Duplicating the
+field markup across two page templates would mean every future field
+change (Milestone 3's likely additions, e.g. a scan-type selector) needs
+to happen twice and can drift. An `{% include %}`d partial keeps one
+source of truth without introducing template inheritance more complex
+than the project needs at this size.
+
+## 19. Scan route handlers are synchronous `def`, not `async def`
+
+**Decision:** `index()` and `submit_scan()` in `routes/pages.py` are
+defined with plain `def`, not `async def`.
+
+**Rationale:** `scan_range` (via `scanner.py`) is a blocking call — it
+doesn't return until every port in the batch has been probed, sometimes
+several seconds. Starlette dispatches a synchronous route handler to a
+worker thread automatically (`run_in_threadpool`); FastAPI's event loop
+stays free to serve other requests while a scan is in flight. Had
+`submit_scan` been `async def` and called the (synchronous) `run_scan`
+directly, one in-flight scan would block the single-threaded event loop —
+and therefore every other request the server is handling — for the
+scan's entire duration.

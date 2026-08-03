@@ -1,0 +1,43 @@
+{# Scan form partial — included by both index.html and results.html so the
+   form only needs to be written once and stays "sticky" (prefilled with
+   whatever was last submitted) on both the form page and the results page. #}
+<section class="card scan-form">
+  {% if error %}
+  <div class="alert alert-error" role="alert">
+    <strong>Couldn't run that scan.</strong> {{ error }}
+  </div>
+  {% endif %}
+
+  <form method="post" action="{{ url_for('submit_scan') }}" class="form" novalidate>
+    <div class="form-row">
+      <label for="target">Target</label>
+      <input
+        type="text" id="target" name="target" autocomplete="off"
+        placeholder="127.0.0.1 or example.com"
+        value="{{ form.target }}" required>
+      <p class="field-hint">Hostname or IP address to scan.</p>
+    </div>
+
+    <div class="form-row">
+      <label for="ports">Ports</label>
+      <input
+        type="text" id="ports" name="ports" autocomplete="off"
+        placeholder="22,80,443,8000-8010"
+        value="{{ form.ports }}" required>
+      <p class="field-hint">Nmap-style spec: comma list and/or dash ranges (max 1024 ports/scan).</p>
+    </div>
+
+    <div class="form-row form-row--split">
+      <div>
+        <label for="timeout">Timeout (seconds)</label>
+        <input type="text" id="timeout" name="timeout" inputmode="decimal" value="{{ form.timeout }}">
+      </div>
+      <div>
+        <label for="workers">Workers</label>
+        <input type="text" id="workers" name="workers" inputmode="numeric" value="{{ form.workers }}">
+      </div>
+    </div>
+
+    <button type="submit" class="btn btn-primary">Scan</button>
+  </form>
+</section>

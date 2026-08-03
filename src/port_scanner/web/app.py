@@ -9,12 +9,15 @@ from typing import Any
 
 from fastapi import FastAPI
 from fastapi.openapi.utils import get_openapi
+from fastapi.staticfiles import StaticFiles
 
 from port_scanner.web.api.v1.router import api_router
 from port_scanner.web.core.config import Settings, get_settings
 from port_scanner.web.core.exceptions import register_exception_handlers
 from port_scanner.web.core.logging import configure_logging
+from port_scanner.web.core.templating import STATIC_DIR
 from port_scanner.web.routes.health import router as health_router
+from port_scanner.web.routes.pages import router as pages_router
 
 DESCRIPTION = (
     "HTTP interface for the port-scanner engine. Wraps the same scan and "
@@ -45,7 +48,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     register_exception_handlers(app)
 
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
     app.include_router(health_router)
+    app.include_router(pages_router)
     app.include_router(api_router, prefix=settings.api_v1_prefix)
 
     def custom_openapi() -> dict[str, Any]:
@@ -61,7 +67,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         schema["info"]["x-environment"] = settings.environment
         schema.setdefault(
             "tags",
-            [{"name": "health", "description": "Liveness/readiness probes"}],
+            [
+                {"name": "health", "description": "Liveness/readiness probes"},
+                {"name": "pages", "description": "Server-rendered HTML pages (scan form and results)"},
+            ],
         )
         app.openapi_schema = schema
         return app.openapi_schema

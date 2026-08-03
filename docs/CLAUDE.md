@@ -21,8 +21,9 @@ one conversation:
 2. `git status` — check for uncommitted work; never discard it silently.
 3. Read `src/port_scanner/scanner.py`, `src/port_scanner/parsing.py`,
    `src/port_scanner/cli.py`, and `src/port_scanner/web/` (FastAPI
-   interface — skeleton only as of Milestone 1, no scan flow wired in yet;
-   see `ARCHITECTURE.md`) — this is the entire application; all are short
+   interface — skeleton plus a server-rendered scan flow as of Milestone 2;
+   no auth/database/service-detection/async-queue yet; see
+   `ARCHITECTURE.md`) — this is the entire application; all are short
    enough to read in full.
 4. Read `tests/test_scanner.py`, `tests/test_cli.py`, and
    `tests/test_web.py` — the tests define the contract the code must keep.

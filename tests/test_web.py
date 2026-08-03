@@ -1,7 +1,11 @@
-"""Tests for the web interface skeleton (Milestone 1: no scan flow yet).
+"""Tests for the web interface: skeleton (Milestone 1) and scan flow
+(Milestone 2).
 
 Requires the ``web`` and ``dev`` extras: ``pip install -e ".[dev,web]"``.
 """
+
+import re
+import socket
 
 import pytest
 
@@ -12,6 +16,15 @@ from fastapi.testclient import TestClient
 from port_scanner.web.app import create_app
 from port_scanner.web.core.config import Settings, get_settings
 from port_scanner.web.core.exceptions import AppError, register_exception_handlers
+from port_scanner.web.schemas.scan import ScanFormData
+from port_scanner.web.services.scan_service import ScanFormError, run_scan
+
+
+def _free_port() -> int:
+    """Ask the OS for an unused local port."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
 
 
 @pytest.fixture
@@ -137,3 +150,134 @@ class TestSettings:
             assert get_settings() is get_settings()
         finally:
             get_settings.cache_clear()
+
+
+class TestScanPage:
+    def test_get_index_renders_form(self, client: TestClient):
+        response = client.get("/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert 'name="target"' in response.text
+        assert 'name="ports"' in response.text
+        # url_for() may render an absolute or relative URL depending on
+        # Starlette version; either way the form must post to /scan.
+        assert re.search(r'action="[^"]*/scan"', response.text)
+
+    def test_static_stylesheet_is_served(self, client: TestClient):
+        response = client.get("/static/css/style.css")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert "text/css" in response.headers["content-type"]
+
+
+class TestScanSubmission:
+    def test_reports_open_port(self, client: TestClient):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
+            server.bind(("127.0.0.1", 0))
+            server.listen(1)
+            port = server.getsockname()[1]
+
+            response = client.post(
+                "/scan",
+                data={"target": "127.0.0.1", "ports": str(port), "timeout": "0.5", "workers": "10"},
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert str(port) in response.text
+        assert "open" in response.text.lower()
+        # The form is redisplayed, prefilled with what was submitted.
+        assert f'value="{port}"' in response.text
+
+    def test_reports_no_open_ports(self, client: TestClient):
+        closed_port = _free_port()
+
+        response = client.post(
+            "/scan",
+            data={"target": "127.0.0.1", "ports": str(closed_port), "timeout": "0.5", "workers": "10"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert "no open ports" in response.text.lower()
+
+    def test_invalid_port_spec_shows_friendly_error(self, client: TestClient):
+        response = client.post(
+            "/scan",
+            data={"target": "127.0.0.1", "ports": "not-a-port", "timeout": "1.0", "workers": "10"},
+        )
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+        assert "invalid port" in response.text.lower()
+        assert "Traceback" not in response.text
+        assert "ValueError" not in response.text
+
+    def test_missing_target_shows_friendly_error(self, client: TestClient):
+        response = client.post(
+            "/scan",
+            data={"target": "", "ports": "80", "timeout": "1.0", "workers": "10"},
+        )
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+        assert "target is required" in response.text.lower()
+
+    def test_non_numeric_timeout_shows_friendly_error(self, client: TestClient):
+        response = client.post(
+            "/scan",
+            data={"target": "127.0.0.1", "ports": "80", "timeout": "not-a-number", "workers": "10"},
+        )
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+        assert "timeout" in response.text.lower()
+
+    def test_too_many_ports_is_rejected(self, client: TestClient):
+        response = client.post(
+            "/scan",
+            data={"target": "127.0.0.1", "ports": "1-65535", "timeout": "0.1", "workers": "50"},
+        )
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+        assert "too many ports" in response.text.lower()
+
+    def test_workers_out_of_bounds_is_rejected(self, client: TestClient):
+        response = client.post(
+            "/scan",
+            data={"target": "127.0.0.1", "ports": "80", "timeout": "1.0", "workers": "100000"},
+        )
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+        assert "workers" in response.text.lower()
+
+
+class TestScanService:
+    """Unit tests for the service layer, independent of HTTP wiring."""
+
+    def test_run_scan_finds_open_port(self):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
+            server.bind(("127.0.0.1", 0))
+            server.listen(1)
+            port = server.getsockname()[1]
+
+            result = run_scan(
+                ScanFormData(target="127.0.0.1", ports=str(port), timeout="0.5", workers="10")
+            )
+
+        assert result.open_ports == [port]
+        assert result.ports_scanned == 1
+        assert result.target == "127.0.0.1"
+
+    def test_run_scan_rejects_blank_target(self):
+        with pytest.raises(ScanFormError, match="Target is required"):
+            run_scan(ScanFormData(target="  ", ports="80"))
+
+    def test_run_scan_rejects_invalid_port_spec(self):
+        with pytest.raises(ScanFormError, match="invalid port"):
+            run_scan(ScanFormData(target="127.0.0.1", ports="abc"))
+
+    def test_run_scan_rejects_unresolvable_target(self):
+        with pytest.raises(ScanFormError, match="Could not scan"):
+            run_scan(
+                ScanFormData(
+                    target="this-host-should-not-resolve.invalid",
+                    ports="80",
+                    timeout="0.5",
+                )
+            )

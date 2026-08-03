@@ -30,11 +30,11 @@ automated test suite and CI.
 
 - ✅ Stable CLI release
 - ✅ Automated testing with GitHub Actions
-- ✅ Web interface: FastAPI skeleton (no scan flow yet — see below)
+- ✅ Web interface: server-rendered scan form (`GET /`, `POST /scan`) — see below
 - 🚧 Planned features:
   - Service/banner detection
   - JSON export
-  - Web interface: scan flow (`GET /`, `POST /scan`)
+  - Web interface: authentication, scan history, user accounts
 
 ## Features
 
@@ -142,23 +142,32 @@ A successful scan (open ports found or not) exits with status code `0`.
 ## Web Interface
 
 A FastAPI web interface lives at `src/port_scanner/web/`, as a peer to the
-CLI — it depends only on `scanner.py`/`parsing.py`, never on `cli.py`. As
-of this writing it's a skeleton only: application factory, environment-
-variable configuration, centralized logging, global exception handling,
-`/api/v1` versioning scaffold, `/health`, and customized OpenAPI docs. It
-does not yet expose any scanning functionality.
+CLI — it depends only on `scanner.py`/`parsing.py`, never on `cli.py`.
+Server-rendered with Jinja2 (no JavaScript): a scan form (`GET /`) posts to
+`POST /scan`, which runs the same `parse_ports`/`scan_range` the CLI uses
+and renders a results page. Invalid input (a bad port spec, an empty
+target, an out-of-range timeout, an unresolvable host) is shown inline on
+the page, never as a raw exception. Also included: environment-variable
+configuration, centralized logging, global exception handling for the
+`/api/v1` side, and customized OpenAPI docs. No authentication, database,
+service detection, or async job queue yet.
 
 ```bash
 pip install -e ".[dev,web]"
 uvicorn port_scanner.web.app:app --reload
 ```
 
+Then open `http://127.0.0.1:8000/` in a browser.
+
+- `GET /` — the scan form
+- `POST /scan` — runs a scan, renders the results page
 - `GET /health` — liveness check
 - `GET /docs`, `GET /redoc` — interactive API documentation
 - `GET /openapi.json` — OpenAPI schema
 
 See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the design and
-[`ROADMAP.md`](ROADMAP.md) for what's planned next (the scan flow itself).
+[`ROADMAP.md`](ROADMAP.md) for what's planned next (auth, scan history,
+user accounts).
 
 ## Project Structure
 
@@ -170,12 +179,16 @@ python-port-scanner/
 │   ├── scanner.py      # scan_port / scan_range (TCP connect scan engine)
 │   ├── parsing.py      # parse_ports (Nmap-style port-spec parsing)
 │   ├── cli.py          # command-line interface
-│   └── web/            # FastAPI interface (skeleton only, see above)
+│   └── web/            # FastAPI interface (see Web Interface, above)
 │       ├── app.py          # create_app() factory
-│       ├── core/            # config, logging, exceptions
+│       ├── core/            # config, logging, exceptions, templating
 │       ├── api/v1/           # versioned API router (empty scaffold)
-│       ├── routes/            # unversioned routes (health)
-│       └── schemas/            # Pydantic models
+│       ├── routes/            # health.py, pages.py (GET /, POST /scan)
+│       ├── services/           # scan_service.py — the only caller of
+│       │                          scanner.py/parsing.py from web/
+│       ├── schemas/             # Pydantic models
+│       ├── templates/            # Jinja2: base/index/scan/results.html
+│       └── static/css/            # style.css
 ├── tests/              # test suite
 ├── pyproject.toml      # packaging & dependencies
 ├── README.md
@@ -210,7 +223,8 @@ developer would locally (`pip install -e ".[dev,web]"`). See
 - [ ] Service/banner detection
 - [ ] Output formats (JSON, table, file export)
 - [x] Web interface — Milestone 1: FastAPI skeleton
-- [ ] Web interface — Milestone 2: scan flow
+- [x] Web interface — Milestone 2: scan flow
+- [ ] Web interface — auth, scan history, user accounts
 - [ ] Deployment
 
 ## Documentation

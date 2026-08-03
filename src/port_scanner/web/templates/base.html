@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Port Scanner{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='/css/style.css') }}">
+</head>
+<body>
+  <header class="site-header">
+    <div class="container site-header__inner">
+      <a class="brand" href="{{ url_for('index') }}">
+        <span class="brand__mark">&#9679;</span> Port Scanner
+      </a>
+      <nav class="site-nav">
+        <a href="{{ url_for('index') }}">Scan</a>
+        <a href="/docs">API docs</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <p>
+        TCP connect scanner &mdash; for authorized security testing and
+        educational use only. See the
+        <a href="https://github.com/MahmoudElrefaie-Eng/python-port-scanner">source</a>.
+      </p>
+    </div>
+  </footer>
+</body>
+</html>

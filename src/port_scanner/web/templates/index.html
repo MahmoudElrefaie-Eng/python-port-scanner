@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+
+{% block title %}Port Scanner{% endblock %}
+
+{% block content %}
+<section class="intro">
+  <h1>Scan a host for open TCP ports</h1>
+  <p>
+    Runs a standard TCP connect scan &mdash; no elevated privileges or raw
+    sockets required. Results appear below once the scan completes.
+  </p>
+</section>
+
+{% include "scan.html" %}
+{% endblock %}
