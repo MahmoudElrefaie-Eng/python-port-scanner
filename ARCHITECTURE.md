@@ -16,8 +16,8 @@ dependencies:
   - `src/port_scanner/parsing.py` — Nmap-style port-spec parsing
     (`parse_ports`, `_to_port`).
 
-Any interface (`cli.py` today; a planned web interface — see
-[`ROADMAP.md`](ROADMAP.md) — later) depends downward on `scanner.py` and
+Any interface (`cli.py` today; `web/` as of Milestone 1 — see
+[`ROADMAP.md`](ROADMAP.md)) depends downward on `scanner.py` and
 `parsing.py`. Interfaces never depend on each other.
 
 ## Diagram
@@ -67,6 +67,56 @@ flowchart TD
 - `main(argv=None) -> int`: wires parsing → `scan_range` → stdout output →
   exit code. This is the function exposed as the `port-scanner` console
   script entry point (`pyproject.toml`: `port-scanner = "port_scanner.cli:main"`).
+
+### `web/` — FastAPI interface (skeleton as of Milestone 1)
+
+A second interface, peer to `cli.py`, structured as a small package rather
+than a single module:
+
+```
+src/port_scanner/web/
+├── app.py              # create_app() factory; module-level `app` for uvicorn
+├── core/
+│   ├── config.py        # Settings, sourced from PORT_SCANNER_* env vars
+│   ├── logging.py        # configure_logging() — one format/handler process-wide
+│   └── exceptions.py      # AppError + global exception handlers
+├── api/v1/
+│   └── router.py          # api_router, mounted at settings.api_v1_prefix
+├── routes/
+│   └── health.py           # GET /health — deliberately outside /api/v1
+└── schemas/
+    └── health.py            # HealthResponse
+```
+
+Design points:
+
+- **Application factory, not a bare module-level app.** `create_app()`
+  accepts an optional `Settings` override so tests build an app against a
+  specific configuration without mutating process environment variables.
+  `app.py` still exposes a module-level `app = create_app()` so
+  `uvicorn port_scanner.web.app:app` works unchanged.
+- **`/health` sits outside `/api/v1`.** Load balancers and orchestrators
+  probe it on a fixed path; its contract shouldn't move when the business
+  API version bumps. Versioned endpoints mount under `settings.api_v1_prefix`
+  via `api/v1/router.py`, which is intentionally empty until an endpoint is
+  added — the versioning scaffold exists so wiring `app.py` never needs to
+  change again once endpoints (e.g. the scan endpoint) land in Milestone 2.
+- **Global exception handling has two tiers.** An `AppError` base class
+  (for future domain errors — auth failures, scan-job errors, etc. — to
+  declare their own `status_code`/`detail`) and a catch-all `Exception`
+  handler that logs the full traceback server-side and returns an opaque
+  500, so a bug never leaks internals to a client. FastAPI's own defaults
+  for `HTTPException` and `RequestValidationError` are left untouched.
+- **Configuration has no third-party dependency.** `core/config.py` is a
+  plain `dataclass` reading `PORT_SCANNER_*` environment variables — no
+  `pydantic-settings`. This follows the same reasoning as decision 5 in
+  [`DECISIONS.md`](DECISIONS.md): don't add a dependency a feature doesn't
+  actually need yet.
+- **No scan logic wired in.** As of Milestone 1, `web/` does not import
+  `scanner.py` or call `parse_ports`/`scan_range` anywhere — only the
+  skeleton (config, logging, exceptions, versioning, `/health`, customized
+  OpenAPI docs) exists. The scan-facing routes (`GET /`, `POST /scan`,
+  `templates/`, `static/`) are a later milestone.
 
 ## Why business logic is separated from the interface
 

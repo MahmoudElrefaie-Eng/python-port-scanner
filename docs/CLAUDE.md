@@ -19,12 +19,13 @@ one conversation:
 
 1. `git log --oneline -20` — see what actually landed recently.
 2. `git status` — check for uncommitted work; never discard it silently.
-3. Read `src/port_scanner/scanner.py`, `src/port_scanner/parsing.py`, and
-   `src/port_scanner/cli.py` — this is the entire application (plus
-   `src/port_scanner/web/` once the planned web interface lands); all are
-   short enough to read in full.
-4. Read `tests/test_scanner.py` and `tests/test_cli.py` — the tests define
-   the contract the code must keep.
+3. Read `src/port_scanner/scanner.py`, `src/port_scanner/parsing.py`,
+   `src/port_scanner/cli.py`, and `src/port_scanner/web/` (FastAPI
+   interface — skeleton only as of Milestone 1, no scan flow wired in yet;
+   see `ARCHITECTURE.md`) — this is the entire application; all are short
+   enough to read in full.
+4. Read `tests/test_scanner.py`, `tests/test_cli.py`, and
+   `tests/test_web.py` — the tests define the contract the code must keep.
 5. Read `pyproject.toml` — authoritative source for version, dependencies,
    Python support range, and the `port-scanner` console-script entry point.
 6. Read `README.md` — user-facing description of features and usage.
@@ -45,17 +46,28 @@ pytest                         # run the full test suite
 port-scanner 127.0.0.1 --ports 22,80,443   # manual smoke test
 ```
 
+To also run `tests/test_web.py` and the FastAPI app, install the `web`
+extra too: `pip install -e ".[dev,web]"`, then
+`uvicorn port_scanner.web.app:app --reload`. The base CLI install
+(`pip install -e .` with no extras) stays dependency-free either way.
+
 There is no linter, formatter, or type-checker configured in this repo today
 — do not assume `black`/`ruff`/`mypy` are wired in until you check
 `pyproject.toml` and `.github/workflows/ci.yml` again.
 
 ## 4. Coding standards (as already practiced in this codebase)
 
-- **Stdlib only.** `scanner.py` and `cli.py` depend on nothing outside the
-  Python standard library (`socket`, `argparse`, `concurrent.futures`,
-  `functools`, `typing`). Don't add a third-party runtime dependency without
-  discussing it with the user first — this is a deliberate constraint, not
-  an oversight.
+- **Stdlib only for the base install and core.** `scanner.py`, `parsing.py`,
+  and `cli.py` depend on nothing outside the Python standard library
+  (`socket`, `argparse`, `concurrent.futures`, `functools`, `typing`); the
+  base `pip install -e .` (no extras) stays dependency-free. Don't add a
+  runtime dependency to those three files, or to `[project] dependencies`,
+  without discussing it with the user first. `src/port_scanner/web/` is the
+  one deliberate exception — it depends on the `web` extra
+  (`fastapi`, `uvicorn[standard]`, `jinja2`, `python-multipart`), approved
+  specifically for that interface; even there, don't add a new dependency
+  beyond what's already approved without asking first (see decision 14 in
+  `DECISIONS.md` for an example of choosing *not* to add one).
 - **Keep business logic and interface separated.** Scanning logic lives in
   `scanner.py`; argument parsing, spec parsing, and I/O live in `cli.py`.
   Don't let `scanner.py` import `argparse` or call `print`/`sys.exit`.

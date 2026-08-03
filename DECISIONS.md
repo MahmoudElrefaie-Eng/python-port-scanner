@@ -124,3 +124,67 @@ logic from another *interface* module (`cli.py`), or it duplicates the
 parser. Both are worse than giving parsing logic its own module that every
 interface can depend on as a peer. See
 [`ARCHITECTURE.md`](ARCHITECTURE.md) for the resulting layering.
+
+## 12. Web interface built as an application factory, not a bare module
+
+**Decision:** `src/port_scanner/web/app.py` exposes `create_app(settings=None)`,
+which builds and returns a configured `FastAPI` instance; a module-level
+`app = create_app()` is kept only so `uvicorn port_scanner.web.app:app`
+keeps working unchanged.
+
+**Rationale:** A bare module-level `FastAPI()` instance can only ever be
+configured one way per process. The factory takes an optional `Settings`
+override so `tests/test_web.py` can build an app against specific
+configuration without mutating environment variables (avoiding test
+pollution/ordering issues), and so future deployments (different
+environments, or eventually a test/staging app with different feature
+flags) don't require a different entry-point module.
+
+## 13. `/health` is unversioned; business routes mount under `/api/v1`
+
+**Decision:** `GET /health` lives at the app root
+(`src/port_scanner/web/routes/health.py`), outside the
+`api/v1/router.py` aggregator that future business endpoints mount under
+`settings.api_v1_prefix`.
+
+**Rationale:** Health checks are consumed by infrastructure (load
+balancers, Kubernetes liveness/readiness probes), not API clients — their
+path must not move when the business API's version changes. Versioning the
+business API from the start (an empty `api_router` mounted in `app.py`)
+means adding the first real `/api/v1` endpoint in a later milestone never
+requires touching `app.py` again.
+
+## 14. Environment-variable configuration via a plain dataclass, not `pydantic-settings`
+
+**Decision:** `src/port_scanner/web/core/config.py`'s `Settings` is a
+frozen `dataclass` with a `from_env()` classmethod reading
+`PORT_SCANNER_*`-prefixed environment variables, cached process-wide by
+`get_settings()` (`functools.lru_cache`) — not a `pydantic-settings`
+`BaseSettings` subclass.
+
+**Rationale:** `fastapi` already brings in `pydantic` as a transitive
+dependency (used for request/response schemas), but `pydantic-settings` is
+a separate package this project doesn't otherwise need. Consistent with
+decision 5 (zero unnecessary dependencies): a handful of scalar/list
+environment variables doesn't justify adding it. If configuration grows
+materially more complex (nested models, secrets sources), this can be
+revisited.
+
+## 15. Global exception handling: `AppError` base class + catch-all, FastAPI defaults untouched
+
+**Decision:** `src/port_scanner/web/core/exceptions.py` registers exactly
+two handlers: one for a new `AppError` base class (for future domain
+errors to declare their own `status_code`/`detail`), and one catch-all for
+`Exception` that logs the full traceback server-side and returns an opaque
+`{"detail": "Internal server error"}` with status 500. FastAPI's built-in
+handlers for `HTTPException` and `RequestValidationError` are left
+registered as-is.
+
+**Rationale:** Starlette's exception middleware dispatches to the most
+specific registered handler for an exception's class, so adding these two
+handlers doesn't change behavior for `HTTPException`/validation errors
+already handled well by FastAPI's defaults — it only adds a safety net for
+genuinely unhandled bugs (never leak an internal exception message to a
+client) and a clean path for future domain-specific errors (auth failures,
+scan-job errors) to map to HTTP responses without each route needing its
+own `try`/`except`.

@@ -17,6 +17,7 @@ automated test suite and CI.
 - [Installation](#installation)
 - [Usage](#usage)
 - [CLI Examples](#cli-examples)
+- [Web Interface](#web-interface)
 - [Project Structure](#project-structure)
 - [Testing](#testing)
 - [Continuous Integration](#continuous-integration)
@@ -29,10 +30,11 @@ automated test suite and CI.
 
 - ✅ Stable CLI release
 - ✅ Automated testing with GitHub Actions
+- ✅ Web interface: FastAPI skeleton (no scan flow yet — see below)
 - 🚧 Planned features:
   - Service/banner detection
   - JSON export
-  - Web interface
+  - Web interface: scan flow (`GET /`, `POST /scan`)
 
 ## Features
 
@@ -78,6 +80,13 @@ Requires Python 3.10+.
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
+```
+
+The web interface (see [Web Interface](#web-interface)) is an optional
+extra — the base install above stays dependency-free:
+
+```bash
+pip install -e ".[dev,web]"
 ```
 
 ## Usage
@@ -130,6 +139,27 @@ error: invalid port 'abc' in spec: 'abc'
 
 A successful scan (open ports found or not) exits with status code `0`.
 
+## Web Interface
+
+A FastAPI web interface lives at `src/port_scanner/web/`, as a peer to the
+CLI — it depends only on `scanner.py`/`parsing.py`, never on `cli.py`. As
+of this writing it's a skeleton only: application factory, environment-
+variable configuration, centralized logging, global exception handling,
+`/api/v1` versioning scaffold, `/health`, and customized OpenAPI docs. It
+does not yet expose any scanning functionality.
+
+```bash
+pip install -e ".[dev,web]"
+uvicorn port_scanner.web.app:app --reload
+```
+
+- `GET /health` — liveness check
+- `GET /docs`, `GET /redoc` — interactive API documentation
+- `GET /openapi.json` — OpenAPI schema
+
+See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the design and
+[`ROADMAP.md`](ROADMAP.md) for what's planned next (the scan flow itself).
+
 ## Project Structure
 
 ```
@@ -139,7 +169,13 @@ python-port-scanner/
 ├── src/port_scanner/   # installable package source
 │   ├── scanner.py      # scan_port / scan_range (TCP connect scan engine)
 │   ├── parsing.py      # parse_ports (Nmap-style port-spec parsing)
-│   └── cli.py          # command-line interface
+│   ├── cli.py          # command-line interface
+│   └── web/            # FastAPI interface (skeleton only, see above)
+│       ├── app.py          # create_app() factory
+│       ├── core/            # config, logging, exceptions
+│       ├── api/v1/           # versioned API router (empty scaffold)
+│       ├── routes/            # unversioned routes (health)
+│       └── schemas/            # Pydantic models
 ├── tests/              # test suite
 ├── pyproject.toml      # packaging & dependencies
 ├── README.md
@@ -159,7 +195,7 @@ pytest
 
 Every push and pull request runs the full test suite on `ubuntu-latest`
 with Python 3.14 via GitHub Actions, installing the project the same way a
-developer would locally (`pip install -e ".[dev]"`). See
+developer would locally (`pip install -e ".[dev,web]"`). See
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 ## Roadmap
@@ -173,7 +209,8 @@ developer would locally (`pip install -e ".[dev]"`). See
 - [x] CI (automated tests on every push)
 - [ ] Service/banner detection
 - [ ] Output formats (JSON, table, file export)
-- [ ] Web interface for interactive scanning
+- [x] Web interface — Milestone 1: FastAPI skeleton
+- [ ] Web interface — Milestone 2: scan flow
 - [ ] Deployment
 
 ## Documentation

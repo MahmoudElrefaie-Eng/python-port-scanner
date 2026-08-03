@@ -20,9 +20,10 @@ flowchart LR
         p2a["Service / banner detection"]
         p2b["Output formats: JSON / table / file export"]
     end
-    subgraph P3["Phase 3 — Interfaces & delivery (planned)"]
+    subgraph P3["Phase 3 — Interfaces & delivery (in progress)"]
         direction TB
-        p3a["Web interface for interactive scanning"]
+        p3a1["Web interface: FastAPI skeleton (done)"]
+        p3a2["Web interface: scan flow (planned)"]
         p3b["Deployment"]
     end
     P1 --> P2 --> P3
@@ -44,11 +45,17 @@ flowchart LR
 - [ ] Service/banner detection on open ports
 - [ ] Output formats: JSON, table, file export
 
-## Phase 3 — Interfaces & delivery (not started)
+## Phase 3 — Interfaces & delivery (in progress)
 
-- [ ] Web interface for interactive scanning
+- [x] Web interface — Milestone 1: FastAPI skeleton (`src/port_scanner/web/`
+      — app factory, env-var configuration, centralized logging, global
+      exception handling, `/api/v1` versioning scaffold, `/health`,
+      customized OpenAPI docs; `tests/test_web.py`). No scan logic wired in.
+- [ ] Web interface — Milestone 2: scan flow (`GET /`, `POST /scan` server-
+      rendered form calling `scan_range`/`parse_ports`, `templates/`,
+      `static/css/style.css`)
 - [ ] Deployment
 
-None of the Phase 2 or Phase 3 items exist in `src/port_scanner/` today —
-they are tracked here as intent only, matching the "planned" section of
-`README.md`.
+None of the Phase 2 items exist in `src/port_scanner/` today. Phase 3's web
+interface has a skeleton only — the scan flow itself has not been
+implemented yet, matching the "planned" section of `README.md`.

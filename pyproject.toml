@@ -13,7 +13,8 @@ authors = [{ name = "Mahmoud Elrefaie", email = "Elrefaiem652@gmail.com" }]
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest"]
+dev = ["pytest", "httpx"]
+web = ["fastapi", "uvicorn[standard]", "jinja2", "python-multipart"]
 
 [project.scripts]
 port-scanner = "port_scanner.cli:main"

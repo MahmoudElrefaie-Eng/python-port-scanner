@@ -6,6 +6,13 @@ Stable v1.0.0 CLI release. Core scanning engine, CLI, packaging, tests, and
 CI are all complete and green (per the checklist in `README.md` and the
 GitHub Actions workflow at `.github/workflows/ci.yml`).
 
+A FastAPI web interface skeleton (`src/port_scanner/web/`) now exists as a
+peer to `cli.py` — see [`ARCHITECTURE.md`](ARCHITECTURE.md). It has no scan
+logic wired in yet: app factory, env-var configuration, centralized
+logging, global exception handling, `/api/v1` versioning scaffold,
+`/health`, and customized OpenAPI docs only (`tests/test_web.py`, 10 tests).
+Install it with `pip install -e ".[dev,web]"`.
+
 ## Version
 
 `1.0.0` — as declared in `pyproject.toml` (`[project] version = "1.0.0"`).
@@ -35,12 +42,15 @@ Requires Python `>=3.10`; CI runs the suite on Python 3.14.
 
 ## Current milestone
 
-v1.0.0 stable release — all items in the "completed" section of
-[`ROADMAP.md`](ROADMAP.md) are done.
+v1.0.0 stable CLI release is done. In parallel, Phase 3's web interface is
+underway: Milestone 1 (FastAPI skeleton) is complete; Milestone 2 (the
+actual scan flow behind it) has not started.
 
 ## Next objective
 
-Pick the next unstarted roadmap item. Per the existing roadmap ordering,
-that is **service/banner detection** on open ports, followed by additional
-output formats (JSON/table/file export). Neither has been started in code
-as of this writing.
+Web interface Milestone 2: wire `GET /` and `POST /scan` (server-rendered
+HTML form, no JS) to `parse_ports`/`scan_range`, add `templates/` and
+`static/css/style.css`. Requires explicit approval before starting per the
+working agreement in this repo. Separately, Phase 2 (service/banner
+detection, additional output formats) remains unstarted and available to
+pick up instead — see [`ROADMAP.md`](ROADMAP.md).
