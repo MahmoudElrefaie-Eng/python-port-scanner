@@ -14,6 +14,12 @@
   --color-error: #b91c1c;
   --color-error-bg: #fef2f2;
   --color-error-border: #fecaca;
+  --color-risk-critical: #b91c1c;
+  --color-risk-critical-bg: #fee2e2;
+  --color-risk-high: #c2410c;
+  --color-risk-high-bg: #ffedd5;
+  --color-risk-medium: #a16207;
+  --color-risk-medium-bg: #fef9c3;
   --radius: 8px;
   --shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.08);
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
@@ -36,6 +42,12 @@
     --color-error: #f87171;
     --color-error-bg: #2a1414;
     --color-error-border: #5c2323;
+    --color-risk-critical: #f87171;
+    --color-risk-critical-bg: #2a1414;
+    --color-risk-high: #fb923c;
+    --color-risk-high-bg: #2a1c0f;
+    --color-risk-medium: #facc15;
+    --color-risk-medium-bg: #2a2410;
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3);
   }
 }
@@ -252,6 +264,39 @@ input[type="text"]:focus {
   color: var(--color-success);
 }
 
+.risk {
+  display: inline-block;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.risk--critical {
+  background: var(--color-risk-critical-bg);
+  color: var(--color-risk-critical);
+}
+
+.risk--high {
+  background: var(--color-risk-high-bg);
+  color: var(--color-risk-high);
+}
+
+.risk--medium {
+  background: var(--color-risk-medium-bg);
+  color: var(--color-risk-medium);
+}
+
+.risk--low {
+  background: var(--color-success-bg);
+  color: var(--color-success);
+}
+
+.risk--info {
+  background: var(--color-border);
+  color: var(--color-text-muted);
+}
+
 .banner-cell {
   font-family: var(--font-mono);
   font-size: 0.85rem;
@@ -264,6 +309,97 @@ input[type="text"]:focus {
 .no-results {
   color: var(--color-text-muted);
   margin: 0;
+}
+
+/* Security assessment */
+
+.security-results h2 {
+  font-size: 1.05rem;
+  margin: 0 0 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.service-assessment {
+  padding: 1rem 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.service-assessment:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+
+.service-assessment h3 {
+  font-size: 0.95rem;
+  margin: 0 0 0.4rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.findings {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+}
+
+.findings li {
+  padding: 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  margin-bottom: 0.6rem;
+}
+
+.findings li:last-child {
+  margin-bottom: 0;
+}
+
+.finding-header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-family: var(--font-mono);
+}
+
+.finding-description {
+  margin: 0.5rem 0 0;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+.recommendation {
+  margin: 0.5rem 0 0;
+  font-size: 0.85rem;
+}
+
+.no-findings {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+/* Checkbox */
+
+.form-row--checkbox {
+  display: flex;
+  flex-direction: column;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  font-size: 0.875rem;
+  margin-bottom: 0;
+  cursor: pointer;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
 }
 
 /* Footer */

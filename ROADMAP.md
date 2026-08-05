@@ -47,9 +47,10 @@ flowchart LR
     subgraph P4["Phase 4 — Security Assessment Platform (in progress)"]
         direction TB
         p4a["security/ engine: matching, risk scoring, Local+NVD providers (done)"]
-        p4b["CLI + web wiring for assessment (planned, Milestone 5)"]
+        p4b["CLI + web wiring for assessment (done, Milestone 5)"]
         p4c["OSV / Vulners providers (planned, additive)"]
-        p4d["Asset inventory, reporting, compliance, threat intel, AI (planned)"]
+        p4d["Additional Security Engine modules: SSL/TLS, HTTP headers, DNS, WHOIS, tech detection (planned, additive)"]
+        p4e["Asset inventory, reporting, compliance, threat intel, AI (planned)"]
     end
     P1 --> P2 --> P3 --> P4
 ```
@@ -124,17 +125,33 @@ flowchart LR
       `engine.py` (`assess()`, the shared entrypoint, cache-first +
       merged-live-providers — [Decision 29](DECISIONS.md)).
       `scanner.py`/`parsing.py`/`detection.py`/`discovery.py` unchanged.
-      **Not yet wired into `cli.py` or `web/`** — that's the next item.
-- [ ] Milestone 5 (planned): wire `security.engine.assess()` into
-      `cli.py` (a flag) and `web/` (a checkbox + `web/services/
-      assessment_service.py` + `web/api/v1` JSON endpoint), the same way
-      Milestone 2 wired `discover()` in. Resolves the open questions from
-      the approved architecture proposal (CLI flag vs. subcommand, web
-      checkbox vs. separate action, NVD API key).
+      Not wired into `cli.py` or `web/` in this milestone — see Milestone
+      5, next.
+- [x] Milestone 5: wired `security.engine.assess()` into `cli.py`
+      (`--assess`, plus `--offline` for cache-only) and `web/` (an opt-in
+      checkbox on the scan form + `web/services/security_service.py` +
+      `POST /api/v1/assessments`), the same way Milestone 2 wired
+      `discover()` in. Resolved the open questions from the approved
+      architecture proposal: CLI flag (not a subcommand), web checkbox +
+      combined results page (not a separate "assess later" action), no
+      NVD API key wiring yet (deferred), offline/cache-only mode exposed
+      on the CLI only (not the web UI). The web-layer bridge module and
+      view models are named generically (`security_service.py`,
+      `HostView`, not `assessment_service.py`/`AssessmentView`) because
+      the Security Engine is designed as a pluggable pipeline — see
+      [Decision 34](DECISIONS.md) and ARCHITECTURE.md's "`security/` as a
+      pluggable pipeline" section — and future modules integrate through
+      the same bridge, not a new one per module.
 - [ ] OSV and Vulners providers (planned, additive — new files
       implementing `VulnerabilityProvider`, no changes elsewhere; see
       [Decision 30](DECISIONS.md) for why they weren't built in
       Milestone 4)
+- [ ] Additional Security Engine modules beyond vulnerability assessment —
+      SSL/TLS configuration analysis, HTTP security header checks, DNS
+      enumeration, WHOIS lookups, technology/fingerprint detection
+      (planned, additive — new files under `security/`, wired in through
+      `security_service.py`/`cli.py` alongside `assess()`; no changes to
+      `scanner.py`/`discovery.py`, see Decision 34)
 - [ ] Host discovery, OS detection (planned — new peer modules, same
       pattern as `detection.py`/`discovery.py`)
 - [ ] Asset inventory, dashboard, reports/export formats (PDF, CSV, JSON),

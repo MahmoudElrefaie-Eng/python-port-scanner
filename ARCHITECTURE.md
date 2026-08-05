@@ -35,8 +35,10 @@ network beyond the target being scanned):
 
 Any interface (`cli.py` today; `web/` as of Milestone 2) depends downward
 on `discovery.py` (which in turn depends on `scanner.py` and
-`detection.py`) and `parsing.py`. Interfaces never depend on each other.
-See [`ROADMAP.md`](ROADMAP.md) for where this is headed.
+`detection.py`), `parsing.py`, and, as of Milestone 5, `security/`
+(directly for `cli.py`; through `web/services/security_service.py` for
+`web/`) — never the reverse, and never on each other. See
+[`ROADMAP.md`](ROADMAP.md) for where this is headed.
 
 ## Diagram
 
@@ -140,9 +142,10 @@ src/port_scanner/security/
     └── nvd.py                   # NVDProvider — live NVD REST API v2.0
 ```
 
-Not yet called by `cli.py` or `web/` — Milestone 4's scope is this engine
-only (see ROADMAP.md); a future milestone wires it in, calling `assess()`
-exactly the way `cli.py` already calls `discover()`.
+Milestone 4's scope was this engine only (see ROADMAP.md); Milestone 5
+wired it in — `cli.py` calls `assess()` directly (`--assess`), and `web/`
+calls it through `web/services/security_service.py` — exactly the way
+`cli.py` and `web/services/scan_service.py` already call `discover()`.
 
 - **`assess(target, port_results, *, cache, providers, max_workers) -> Host`**
   is the shared entrypoint, same role as `discover()` one layer up. It
@@ -195,23 +198,71 @@ exactly the way `cli.py` already calls `discover()`.
   output type, without importing from or modifying anything in
   `security/`. See [Decision 33](DECISIONS.md).
 
+#### `security/` as a pluggable pipeline, not a single module
+
+`engine.py`'s `assess()` is the **vulnerability assessment module** of
+what's intended to become a broader Security Engine — not the whole of
+it. The long-term shape (see [Decision 34](DECISIONS.md) and
+[`ROADMAP.md`](ROADMAP.md)) is a pipeline of independent security
+modules, each consuming `discovery.discover()`'s output (or, for
+host-level checks that aren't port-specific, just the scanned target)
+and producing its own frozen-dataclass result:
+
+- Vulnerability assessment (`engine.py`'s `assess()`) — built, Milestone 4.
+- SSL/TLS configuration analysis — planned.
+- HTTP security header checks — planned.
+- DNS enumeration — planned.
+- WHOIS lookups — planned.
+- Technology/fingerprint detection — planned.
+
+None of the planned modules exist yet — only `assess()` does. What
+matters architecturally is that adding one is additive at the interface
+layer only: a new module is a new file under `security/` implementing
+the same read-only-input/frozen-output shape `assess()` already
+established, called alongside `assess()` from `cli.py`/`web/` (Milestone
+5's `security_service.py`, named generically for exactly this reason —
+see Decision 34), merged into the same report. `scanner.py`,
+`parsing.py`, `detection.py`, and `discovery.py` need no changes to
+support any of them, the same way none were needed to add vulnerability
+assessment in Milestone 4.
+
 ### `cli.py` — interface
 
-- Imports `parse_ports` from `parsing.py` and `discover`/`PortResult` from
-  `discovery.py`. Does not import `scanner.py` or `detection.py` directly.
-- `build_parser()`: defines the `argparse` CLI surface (`target`, `--ports`,
-  `--timeout`, `--workers`) — unchanged by Milestone 3; no new flags.
+- Imports `parse_ports` from `parsing.py`, `discover`/`PortResult` from
+  `discovery.py`, and (as of Milestone 5) `assess` from
+  `security.engine`/`Host` from `security.models`. Does not import
+  `scanner.py` or `detection.py` directly, and does not import anything
+  from `security.providers` or `security.matching` — it only calls the
+  one shared entrypoint, the same relationship it already has with
+  `discover()`.
+- `build_parser()`: defines the `argparse` CLI surface — `target`,
+  `--ports`, `--timeout`, `--workers` (unchanged since Milestone 3), plus
+  `--assess` and `--offline` (Milestone 5). `security/` is stdlib-only
+  (see Decision 5), so importing it added no new dependency to the base
+  install.
 - `_format_table(results) -> str`: a small hand-rolled fixed-width table
   formatter (headers `PORT`/`STATE`/`SERVICE`/`BANNER`, columns sized to
   the widest cell). Pure stdlib — no `tabulate`/`rich` dependency, for the
   same reason `scanner.py`/`parsing.py` are stdlib-only (see Decision 5 in
   [`DECISIONS.md`](DECISIONS.md)); `cli.py`'s base install stays
   dependency-free.
+- `_format_security_report(host) -> str` (Milestone 5): a second,
+  independent hand-rolled text formatter — printed as its own block below
+  the port table, not folded into `_format_table`'s columns, since a
+  service can have zero-to-many findings and doesn't fit one flat row.
+  Per service: port, service name, banner, risk level, then each matched
+  CVE with its CVSS score, description, and recommendation, or an
+  explicit "no known vulnerabilities matched" line.
 - `main(argv=None) -> int`: wires parsing → `discover` → table output →
-  exit code. This is the function exposed as the `port-scanner` console
-  script entry point (`pyproject.toml`: `port-scanner = "port_scanner.cli:main"`).
-  Exit code contract unchanged: `0` on a completed scan, `2` on invalid
-  input.
+  exit code, unchanged. When `--assess` is given and at least one port is
+  open, it additionally calls `assess(target, results, providers=()
+  if args.offline else None)` and prints `_format_security_report`'s
+  output. Assessment is opt-in and strictly additive: without `--assess`,
+  `main`'s behavior, output, and exit-code contract are byte-for-byte
+  what they were before Milestone 5. This is the function exposed as the
+  `port-scanner` console script entry point (`pyproject.toml`:
+  `port-scanner = "port_scanner.cli:main"`). Exit code contract
+  unchanged: `0` on a completed scan, `2` on invalid input.
 
 ### `web/` — FastAPI interface
 
@@ -227,20 +278,27 @@ src/port_scanner/web/
 │   ├── exceptions.py       # AppError + global exception handlers
 │   └── templating.py        # shared Jinja2Templates instance
 ├── api/v1/
-│   └── router.py           # api_router, mounted at settings.api_v1_prefix (empty scaffold)
+│   ├── router.py            # api_router, mounted at settings.api_v1_prefix
+│   └── endpoints/
+│       └── security.py        # POST /assessments — JSON scan + assess (Milestone 5)
 ├── routes/
 │   ├── health.py            # GET /health — outside /api/v1
 │   └── pages.py               # GET / and POST /scan — the server-rendered UI
 ├── services/
-│   └── scan_service.py         # run_scan(): the only place web/ calls discovery.py/parsing.py
+│   ├── scan_service.py         # run_scan(): the only place web/ calls discovery.py/parsing.py
+│   └── security_service.py      # run_assessment(): the only place web/ calls security/ (Milestone 5)
 ├── schemas/
 │   ├── health.py                # HealthResponse
-│   └── scan.py                    # ScanFormData, PortResultView, ScanResultView
+│   ├── scan.py                    # ScanFormData, PortResultView, ScanResultView
+│   └── security.py                  # AssessmentRequest, HostView, ServiceAssessmentView,
+│                                        FindingView, VulnerabilityView (Milestone 5)
 ├── templates/
 │   ├── base.html                   # shared layout (header/nav/footer, links style.css)
-│   ├── scan.html                    # the <form> — a partial included by index.html and results.html
+│   ├── scan.html                    # the <form> — a partial included by index.html and results.html;
+│   │                                   includes the "Assess for known vulnerabilities" checkbox
 │   ├── index.html                    # GET / — extends base, includes scan.html
-│   └── results.html                   # POST /scan success — extends base, includes scan.html + a results table
+│   └── results.html                   # POST /scan success — extends base, includes scan.html +
+│                                          a results table + an optional security-assessment section
 └── static/css/style.css                # hand-written CSS, no framework, no JS
 ```
 
@@ -255,9 +313,9 @@ Design points:
   probe `/health` on a fixed path; `GET /`/`POST /scan` are the UI, not a
   JSON API contract — neither should move when the business API version
   bumps. Versioned endpoints mount under `settings.api_v1_prefix` via
-  `api/v1/router.py`, which is intentionally still empty — a future JSON
-  API for the same scan capability would live there, without touching the
-  UI routes.
+  `api/v1/router.py` — empty through Milestone 4, holding its first
+  endpoint module (`endpoints/security.py`, `POST /assessments`) as of
+  Milestone 5, without any change to the UI routes above it.
 - **Global exception handling has two tiers**, for the JSON side of the
   app. An `AppError` base class (for future domain errors — auth
   failures, scan-job errors, etc. — to declare their own
@@ -312,7 +370,35 @@ Design points:
   (`run_in_threadpool`); had `submit_scan` been `async def` and called
   `run_scan` directly, a single in-flight scan would block the entire
   event loop — every other request the server is handling — for the
-  scan's duration.
+  scan's duration. The same reasoning covers `security_service.
+  run_assessment` when a live NVD lookup is in flight — `submit_scan`
+  stays synchronous either way.
+- **Vulnerability assessment is opt-in, reuses the scan's own results,
+  and is bridged through a generically-named module (Milestone 5).**
+  `ScanFormData` gained one field, `assess: bool = False`, rendered as a
+  checkbox in `scan.html`. When checked, `submit_scan` calls
+  `security_service.run_assessment(result.target, result.results)` —
+  `result.results` being the `PortResultView` list `scan_service.
+  run_scan()` already produced, adapted back into `discovery.PortResult`
+  inside `security_service.py` (a plain 4-field value copy) rather than
+  re-scanning the target a second time. `security_service.py` is named
+  after "security," not "assessment," and its view models
+  (`web/schemas/security.py`) are named `HostView`/`FindingView`, not
+  `AssessmentView`/... — because vulnerability assessment is meant to be
+  the first of several Security Engine modules wired through this same
+  bridge, not a one-off; see [Decision 34](DECISIONS.md) and this file's
+  "`security/` as a pluggable pipeline" section, above.
+- **`POST /api/v1/assessments` is a JSON counterpart to the checkbox, not
+  a separate code path.** `web/api/v1/endpoints/security.py` calls
+  `scan_service.run_scan` (so it inherits the same per-request bounds —
+  max ports, timeout/workers range — as the HTML form; see
+  [Decision 17](DECISIONS.md)) and then `security_service.run_assessment`
+  on the result, returning a `HostView` as JSON. A `ScanFormError` from
+  `run_scan` is translated into a `422` `HTTPException` with the same
+  message the HTML form would show — using FastAPI's untouched default
+  `HTTPException` handling (Decision 15), not the `ScanFormError`→HTML
+  translation `submit_scan` uses, since this endpoint's clients expect
+  JSON.
 
 ## Why business logic is separated from the interface
 

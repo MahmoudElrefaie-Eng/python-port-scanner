@@ -2,9 +2,18 @@
 a structured `Host` result.
 
 The single shared entrypoint for vulnerability assessment — mirrors
-`discovery.discover()`'s role for scanning (see DECISIONS.md 29). Not yet
-called by `cli.py` or `web/` (Milestone 4 scope is this engine only, see
-ROADMAP.md); a future milestone wires it in, calling this exact function.
+`discovery.discover()`'s role for scanning (see DECISIONS.md 29). Wired
+into `cli.py` (`--assess`) and `web/` (`web/services/security_service.py`)
+as of Milestone 5.
+
+This module is the *vulnerability assessment* module of a broader,
+pluggable Security Engine — not the whole of it. Future modules (SSL/TLS
+analysis, HTTP security header checks, DNS enumeration, WHOIS, technology
+detection, ...) are expected to live as siblings under `security/`, each
+consuming `discovery.discover()`'s output the same read-only way `assess()`
+does here, without requiring changes to this file, `discovery.py`, or
+anything below it. See ARCHITECTURE.md's "`security/` as a pluggable
+pipeline" section and DECISIONS.md 34.
 """
 
 from __future__ import annotations

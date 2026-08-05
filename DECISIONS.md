@@ -557,3 +557,35 @@ to build (frozen dataclasses were already the right choice per decision
 need — that guess would likely be wrong and would itself become
 placeholder code, which this project has consistently avoided building
 ahead of an actual requirement.
+
+## 34. Security Engine is a pluggable pipeline; Milestone 5 wires up its first module (vulnerability assessment) only
+
+**Decision:** The web-layer bridge module that calls into `security/` is
+named `web/services/security_service.py`, not `assessment_service.py` —
+even though, in this milestone, it calls exactly one thing:
+`security.engine.assess()`. `security/engine.py`'s `assess()` is
+documented (in its own module docstring and in
+[`ARCHITECTURE.md`](ARCHITECTURE.md)) as the *vulnerability assessment
+module* specifically — one of what's intended to become several
+independent security modules (SSL/TLS analysis, HTTP security header
+checks, DNS enumeration, WHOIS, technology detection, ...) that a future
+Security Engine orchestrator runs over the same `discovery.discover()`
+output. None of those future modules are built in this milestone — only
+the naming and documentation account for them now, ahead of the second
+module actually landing.
+
+**Rationale:** Direct instruction, given before implementation began.
+Naming the CLI/web integration points after "security" rather than
+"assessment" avoids a rename (and the import/doc churn that comes with
+it — see decision 27's own reasoning for renaming `assessment/` to
+`security/` before Milestone 4 shipped any code) once a second module
+exists. Each future module is expected to follow the same shape
+`assess()` already established: take `discovery.PortResult`s (or, for
+host-level checks like WHOIS/DNS, just the target string) as read-only
+input, return its own frozen-dataclass result type, and never import
+from or modify `scanner.py`/`discovery.py`. That keeps `discovery.py` the
+single, unmodified orchestration layer underneath every security module,
+exactly as it is today under vulnerability assessment alone — adding a
+module is additive at the interface layer (one more call alongside
+`assess()`, one more section in the report), not a change to anything
+below it.

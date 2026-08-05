@@ -15,13 +15,16 @@ class ScanFormData(BaseModel):
     Kept as strings (not coerced to float/int here) so an invalid value —
     e.g. a non-numeric timeout — can be redisplayed to the user exactly as
     they typed it, with a validation message, instead of failing before we
-    even have something to show them.
+    even have something to show them. ``assess`` is the one exception — a
+    checkbox has no equivalent invalid-value case to preserve, so it's a
+    plain ``bool``.
     """
 
     target: str = ""
     ports: str = DEFAULT_PORT_SPEC
     timeout: str = DEFAULT_TIMEOUT
     workers: str = DEFAULT_WORKERS
+    assess: bool = False
 
 
 class PortResultView(BaseModel):

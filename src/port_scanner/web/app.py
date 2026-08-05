@@ -70,6 +70,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             [
                 {"name": "health", "description": "Liveness/readiness probes"},
                 {"name": "pages", "description": "Server-rendered HTML pages (scan form and results)"},
+                {"name": "security", "description": "Security Engine JSON API (vulnerability assessment)"},
             ],
         )
         app.openapi_schema = schema

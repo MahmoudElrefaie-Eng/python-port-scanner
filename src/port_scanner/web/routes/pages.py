@@ -17,6 +17,7 @@ from port_scanner.web.schemas.scan import (
     DEFAULT_WORKERS,
     ScanFormData,
 )
+from port_scanner.web.services import security_service
 from port_scanner.web.services.scan_service import ScanFormError, run_scan
 
 router = APIRouter(tags=["pages"])
@@ -40,8 +41,9 @@ def submit_scan(
     ports: str = Form(DEFAULT_PORT_SPEC),
     timeout: str = Form(DEFAULT_TIMEOUT),
     workers: str = Form(DEFAULT_WORKERS),
+    assess: bool = Form(False),
 ) -> HTMLResponse:
-    form = ScanFormData(target=target, ports=ports, timeout=timeout, workers=workers)
+    form = ScanFormData(target=target, ports=ports, timeout=timeout, workers=workers, assess=assess)
 
     try:
         result = run_scan(form)
@@ -53,8 +55,10 @@ def submit_scan(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         )
 
+    assessment = security_service.run_assessment(result.target, result.results) if assess else None
+
     return templates.TemplateResponse(
         request=request,
         name="results.html",
-        context={"form": form, "result": result},
+        context={"form": form, "result": result, "assessment": assessment},
     )

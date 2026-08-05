@@ -38,6 +38,17 @@
       </div>
     </div>
 
+    <div class="form-row form-row--checkbox">
+      <label class="checkbox-label" for="assess">
+        <input type="checkbox" id="assess" name="assess" value="true" {% if form.assess %}checked{% endif %}>
+        Assess for known vulnerabilities
+      </label>
+      <p class="field-hint">
+        Matches detected service versions against known CVEs (local cache,
+        then a live NVD lookup on a cache miss). Adds time to the scan.
+      </p>
+    </div>
+
     <button type="submit" class="btn btn-primary">Scan</button>
   </form>
 </section>

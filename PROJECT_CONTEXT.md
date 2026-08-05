@@ -21,18 +21,31 @@ Jinja2 templates, a plain CSS stylesheet, validation errors shown inline
 instead of raw exceptions), and Milestone 3 (service detection & banner
 grabbing, shared by the CLI and the web UI) are all complete. Milestone 4
 (`src/port_scanner/security/` — vulnerability matching, risk scoring, a
-multi-provider abstraction with two working providers) is also complete
-but **not yet wired into either interface** — see below and
-[Decision 30](DECISIONS.md). No auth, database, or async job queue yet —
-deliberately deferred, see [Decision 26](DECISIONS.md).
+multi-provider abstraction with two working providers) is also complete.
+Milestone 5 wires that engine into both interfaces: `cli.py` gained
+`--assess`/`--offline`; `web/` gained an opt-in "Assess for known
+vulnerabilities" checkbox on the scan form (`web/services/
+security_service.py`) and a `POST /api/v1/assessments` JSON endpoint
+(`web/api/v1/endpoints/security.py`). The web-layer bridge module and view
+models are deliberately named generically — `security_service.py`,
+`HostView` — not after "assessment," because the Security Engine is
+designed as a pluggable pipeline: `assess()` is its first module, and
+future modules (SSL/TLS analysis, HTTP security headers, DNS enumeration,
+WHOIS, technology detection) are meant to integrate through the same
+bridge without a rename — see [Decision 34](DECISIONS.md) and
+ARCHITECTURE.md's "`security/` as a pluggable pipeline" section. No auth,
+database, or async job queue yet — deliberately deferred, see
+[Decision 26](DECISIONS.md).
 
-137 tests total (`test_scanner.py` 5, `test_cli.py` 15, `test_detection.py`
-20, `test_discovery.py` 5, `test_web.py` 23, `test_security_matching.py`
-29, `test_security_risk.py` 13, `test_security_cve_db.py` 6,
-`test_security_providers.py` 10, `test_security_engine.py` 11). Install
-with `pip install -e ".[dev,web]"` (the `security/` package is stdlib-only
-— no new extra needed), run the CLI with `port-scanner ...` or the web
-app with `uvicorn port_scanner.web.app:app`.
+153 tests total (`test_scanner.py` 5, `test_cli.py` 20, `test_detection.py`
+20, `test_discovery.py` 5, `test_web.py` 23, `test_web_security.py` 11,
+`test_security_matching.py` 29, `test_security_risk.py` 13,
+`test_security_cve_db.py` 6, `test_security_providers.py` 10,
+`test_security_engine.py` 11). Install with `pip install -e ".[dev,web]"`
+(the `security/` package itself is stdlib-only — no new extra needed for
+`cli.py --assess`; the web checkbox and JSON endpoint ride on the
+already-required `web` extra), run the CLI with `port-scanner ...` or the
+web app with `uvicorn port_scanner.web.app:app`.
 
 ## Version
 
@@ -79,8 +92,10 @@ Requires Python `>=3.10`; CI runs the suite on Python 3.14.
 - **Vulnerability matching & risk scoring** (`security/engine.py`'s
   `assess()`) — takes `discovery.discover()`'s output and returns a
   `Host` -> `Service` -> `Finding` -> `Vulnerability` graph
-  ([Decision 28](DECISIONS.md)), asset-management-shaped. Not yet called
-  by either interface — see "Current milestone" below.
+  ([Decision 28](DECISIONS.md)), asset-management-shaped. Called from
+  `cli.py` (`--assess`/`--offline`) and `web/services/security_service.py`
+  (an opt-in checkbox on the scan form, and `POST /api/v1/assessments`
+  for JSON clients) as of Milestone 5.
 - **Multi-provider vulnerability lookup** (`security/providers/`) — a
   `VulnerabilityProvider` Protocol; `LocalCVEProvider` (offline, SQLite
   cache, `security/cve_db.py`) checked first, `NVDProvider` (live NVD
@@ -102,21 +117,35 @@ Requires Python `>=3.10`; CI runs the suite on Python 3.14.
 v1.0.0 stable CLI release is done. Phase 3's web interface has completed
 three milestones: FastAPI skeleton, server-rendered scan flow, and service
 detection & banner grabbing. Phase 4 (Security Assessment Platform) has
-completed Milestone 4: the `security/` engine — data models, matching,
-risk scoring, and a working two-provider abstraction — built, tested
-(including a live check against the real NVD API), and documented, but
-**not called by `cli.py` or `web/` yet**. Auth, scan history, and user
-accounts remain planned but deliberately deferred — see
+completed Milestone 4 (the `security/` engine — data models, matching,
+risk scoring, and a working two-provider abstraction) and Milestone 5:
+wiring that engine into both interfaces. `cli.py` gained `--assess`
+(prints a security report below the port table) and `--offline` (cache-
+only, no live NVD lookups). `web/` gained an opt-in checkbox on the scan
+form — reusing the scan's own results rather than re-scanning — and a
+`POST /api/v1/assessments` JSON endpoint. The integration is deliberately
+named and structured as a pluggable Security Engine pipeline
+(`security_service.py`, `HostView`, not `assessment_service.py`/
+`AssessmentView`): `assess()` is documented as its first module, and
+future modules (SSL/TLS analysis, HTTP security headers, DNS enumeration,
+WHOIS, technology detection) are meant to join through the same bridge
+without a rename — see [Decision 34](DECISIONS.md). Auth, scan history,
+and user accounts remain planned but deliberately deferred — see
 [Decision 26](DECISIONS.md) — and need explicit approval before they
 begin, per the working agreement in this repo.
 
 ## Next objective
 
-Wait for direction on what's next. Candidates, none started: Milestone 5
-— wiring `security.engine.assess()` into `cli.py` (a flag) and `web/` (a
-checkbox, a new `assessment_service.py`, a `web/api/v1` JSON endpoint);
-OSV/Vulners providers; expanding banner grabbing to the 7 services that
-currently only get a port-based guess (DNS, LDAP, SMB, RDP, PostgreSQL,
-MongoDB, NTP — see [Decision 22](DECISIONS.md)); JSON/file export output
-formats; the deferred web auth/history/accounts milestone; deployment.
-See [`ROADMAP.md`](ROADMAP.md).
+Wait for direction on what's next. Candidates, none started: OSV/Vulners
+vulnerability providers ([Decision 30](DECISIONS.md)); additional
+Security Engine modules beyond vulnerability assessment — SSL/TLS
+configuration analysis, HTTP security header checks, DNS enumeration,
+WHOIS lookups, technology/fingerprint detection — each addable as a new
+file under `security/` plus a call from `security_service.py`/`cli.py`,
+no changes to `scanner.py`/`discovery.py` needed ([Decision 34](DECISIONS.md));
+wiring a `PORT_SCANNER_NVD_API_KEY` setting (deferred in Milestone 5);
+expanding banner grabbing to the 7 services that currently only get a
+port-based guess (DNS, LDAP, SMB, RDP, PostgreSQL, MongoDB, NTP — see
+[Decision 22](DECISIONS.md)); JSON/file export output formats; the
+deferred web auth/history/accounts milestone; deployment. See
+[`ROADMAP.md`](ROADMAP.md).

@@ -36,10 +36,15 @@ suite and CI.
 - ✅ Automated testing with GitHub Actions
 - ✅ Web interface: server-rendered scan form (`GET /`, `POST /scan`) — see below
 - ✅ Service detection & banner grabbing — shared by the CLI and the web UI, see below
-- ✅ Vulnerability matching & risk scoring engine (`security/`) — built and
-  tested, **not yet reachable from the CLI or web UI** (Milestone 5)
+- ✅ Vulnerability matching & risk scoring engine (`security/`) — built,
+  tested, and wired into both the CLI (`--assess`) and the web UI (an
+  "Assess for known vulnerabilities" checkbox, plus a JSON endpoint at
+  `POST /api/v1/assessments`) — see below
 - 🚧 Planned features:
-  - Wiring the vulnerability-assessment engine into the CLI and web UI
+  - Additional Security Engine modules (SSL/TLS analysis, HTTP security
+    headers, DNS enumeration, WHOIS, technology detection) — the
+    orchestration layer is designed to take these as additive siblings to
+    vulnerability assessment, see [`ARCHITECTURE.md`](ARCHITECTURE.md)
   - Additional vulnerability providers (OSV, Vulners)
   - JSON / file export output formats
   - Banner grabbing for the remaining services that currently only get a
@@ -71,7 +76,12 @@ suite and CI.
   scores risk from CVSS (worst-case per host), and generates a
   deterministic remediation suggestion. Built around a
   `VulnerabilityProvider` protocol so more sources (OSV, Vulners, ...)
-  are additive, not a rewrite. **Not yet wired into the CLI or web UI.**
+  are additive, not a rewrite. Wired into the CLI (`--assess`, plus
+  `--offline` for a cache-only run) and the web UI (an opt-in checkbox on
+  the scan form, and `POST /api/v1/assessments` for JSON clients) — see
+  [Web Interface](#web-interface) and
+  [`ARCHITECTURE.md`](ARCHITECTURE.md) for how this is designed as the
+  first module of a pluggable Security Engine, not a one-off integration.
 - **Configurable timeout and concurrency** — tune `--timeout` and
   `--workers` per scan for speed vs. reliability trade-offs.
 - **Scriptable exit codes** — `0` for a completed scan, `2` for invalid
@@ -173,19 +183,40 @@ error: invalid port 'abc' in spec: 'abc'
 
 A successful scan (open ports found or not) exits with status code `0`.
 
+Assess detected services for known vulnerabilities (local CVE cache
+first, then a live NVD lookup on a cache miss) and print a security
+report below the port table:
+
+```bash
+port-scanner 127.0.0.1 --ports 22,80,443 --assess
+```
+
+Add `--offline` to skip live NVD lookups and use the local cache only:
+
+```bash
+port-scanner 127.0.0.1 --ports 22,80,443 --assess --offline
+```
+
 ## Web Interface
 
 A FastAPI web interface lives at `src/port_scanner/web/`, as a peer to the
-CLI — it depends only on `discovery.py`/`parsing.py`, never on `cli.py`.
-Server-rendered with Jinja2 (no JavaScript): a scan form (`GET /`) posts to
-`POST /scan`, which runs the same `discover()` pipeline the CLI uses —
-scan, then service detection and banner grabbing — and renders a results
-table with Port/Status/Service/Banner columns. Invalid input (a bad port
-spec, an empty target, an out-of-range timeout, an unresolvable host) is
-shown inline on the page, never as a raw exception. Also included:
-environment-variable configuration, centralized logging, global exception
-handling for the `/api/v1` side, and customized OpenAPI docs. No
+CLI — it depends only on `discovery.py`/`parsing.py`/`security/`, never on
+`cli.py`. Server-rendered with Jinja2 (no JavaScript): a scan form (`GET
+/`) posts to `POST /scan`, which runs the same `discover()` pipeline the
+CLI uses — scan, then service detection and banner grabbing — and renders
+a results table with Port/Status/Service/Banner columns. Invalid input (a
+bad port spec, an empty target, an out-of-range timeout, an unresolvable
+host) is shown inline on the page, never as a raw exception. Also
+included: environment-variable configuration, centralized logging, global
+exception handling for the `/api/v1` side, and customized OpenAPI docs. No
 authentication, database, or async job queue yet.
+
+Checking "Assess for known vulnerabilities" on the scan form additionally
+runs `security.engine.assess()` over the scan's own results (no second
+scan against the target) and renders a Risk Level, matched CVEs, and
+remediation recommendations per service below the port table. The same
+capability is available to JSON clients at `POST /api/v1/assessments`,
+which scans and assesses `target` in one call.
 
 ```bash
 pip install -e ".[dev,web]"
@@ -195,7 +226,11 @@ uvicorn port_scanner.web.app:app --reload
 Then open `http://127.0.0.1:8000/` in a browser.
 
 - `GET /` — the scan form
-- `POST /scan` — runs a scan (with service detection), renders the results page
+- `POST /scan` — runs a scan (with service detection), renders the
+  results page; check "Assess for known vulnerabilities" to also run
+  vulnerability assessment
+- `POST /api/v1/assessments` — JSON: scan `target` and assess it for
+  known vulnerabilities in one call
 - `GET /health` — liveness check
 - `GET /docs`, `GET /redoc` — interactive API documentation
 - `GET /openapi.json` — OpenAPI schema
@@ -215,22 +250,27 @@ python-port-scanner/
 │   ├── parsing.py      # parse_ports (Nmap-style port-spec parsing)
 │   ├── detection.py    # guess_service / identify_service (service ID + banners)
 │   ├── discovery.py    # discover() — the shared entrypoint (scan + detect)
-│   ├── security/       # assess() — vulnerability matching + risk scoring
+│   ├── security/       # assess() — vulnerability matching + risk scoring;
+│   │   │                 the first module of a pluggable Security Engine
 │   │   ├── models.py       # Host -> Service -> Finding -> Vulnerability
 │   │   ├── matching.py      # banner -> (product, version)
 │   │   ├── risk.py           # CVSS -> RiskLevel, recommendations
 │   │   ├── cve_db.py          # local SQLite CVE cache
-│   │   ├── engine.py           # assess() — not yet called by cli.py/web/
+│   │   ├── engine.py           # assess() — called by cli.py (--assess) and
+│   │   │                          web/services/security_service.py
 │   │   └── providers/           # LocalCVEProvider, NVDProvider (+ Protocol)
-│   ├── cli.py          # command-line interface (table output)
+│   ├── cli.py          # command-line interface (table + security report)
 │   └── web/            # FastAPI interface (see Web Interface, above)
 │       ├── app.py          # create_app() factory
 │       ├── core/            # config, logging, exceptions, templating
-│       ├── api/v1/           # versioned API router (empty scaffold)
+│       ├── api/v1/           # versioned API router
+│       │   └── endpoints/          # security.py — POST /assessments
 │       ├── routes/            # health.py, pages.py (GET /, POST /scan)
-│       ├── services/           # scan_service.py — the only caller of
-│       │                          scanner.py/parsing.py from web/
-│       ├── schemas/             # Pydantic models
+│       ├── services/           # scan_service.py (scanning) and
+│       │                          security_service.py (Security Engine
+│       │                          bridge) — the only web/ callers of
+│       │                          discovery.py/parsing.py/security/
+│       ├── schemas/             # Pydantic models (scan.py, security.py)
 │       ├── templates/            # Jinja2: base/index/scan/results.html
 │       └── static/css/            # style.css
 ├── tests/              # test suite
@@ -275,7 +315,12 @@ developer would locally (`pip install -e ".[dev,web]"`). See
 - [x] Security assessment engine (`security/`) — vulnerability matching,
       risk scoring, multi-provider abstraction (Local + NVD working; OSV/
       Vulners designed for, not yet built)
-- [ ] Security assessment — wired into the CLI and web UI (Milestone 5)
+- [x] Security assessment — wired into the CLI and web UI (Milestone 5):
+      `port-scanner --assess`/`--offline`, a web scan-form checkbox, and
+      `POST /api/v1/assessments`, all built on a Security Engine
+      designed as a pluggable pipeline for future modules (SSL/TLS, HTTP
+      headers, DNS, WHOIS, tech detection) to join without touching
+      `scanner.py`/`discovery.py`
 
 ## Documentation
 

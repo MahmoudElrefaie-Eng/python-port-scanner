@@ -36,4 +36,46 @@
   <p class="no-results">No open ports found on {{ result.target }} in the scanned range.</p>
   {% endif %}
 </section>
+
+{% if assessment %}
+<section class="card security-results">
+  <h2>
+    Security assessment
+    <span class="risk risk--{{ assessment.risk_level.value|lower }}">{{ assessment.risk_level.value }}</span>
+  </h2>
+  {% for service in assessment.services %}
+  <div class="service-assessment">
+    <h3>
+      Port {{ service.port }} &middot; {{ service.service_name }}
+      <span class="risk risk--{{ service.risk_level.value|lower }}">{{ service.risk_level.value }}</span>
+    </h3>
+    <p class="banner-cell{{ ' banner-cell--unknown' if service.banner == 'Unknown' else '' }}">{{ service.banner }}</p>
+    {% if service.findings %}
+    <ul class="findings">
+      {% for finding in service.findings %}
+      <li>
+        <span class="finding-header">
+          <strong>{{ finding.vulnerability.cve_id }}</strong>
+          {% if finding.vulnerability.cvss_score is not none %}
+          <span class="risk risk--{{ finding.risk_level.value|lower }}">CVSS {{ finding.vulnerability.cvss_score }}</span>
+          {% endif %}
+        </span>
+        {% if finding.vulnerability.description %}
+        <p class="finding-description">{{ finding.vulnerability.description }}</p>
+        {% endif %}
+        <p class="recommendation">{{ finding.recommendation }}</p>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="no-findings">
+      No known vulnerabilities matched. This reflects approximate,
+      Stage-1 version matching against the providers queried — not a
+      confirmed clean bill of health.
+    </p>
+    {% endif %}
+  </div>
+  {% endfor %}
+</section>
+{% endif %}
 {% endblock %}

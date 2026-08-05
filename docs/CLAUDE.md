@@ -22,17 +22,21 @@ one conversation:
 3. Read `src/port_scanner/scanner.py`, `src/port_scanner/parsing.py`,
    `src/port_scanner/detection.py`, `src/port_scanner/discovery.py`,
    `src/port_scanner/security/` (vulnerability matching & risk scoring —
-   built and tested as of Milestone 4, **not yet called by `cli.py` or
-   `web/`**), `src/port_scanner/cli.py`, and `src/port_scanner/web/`
-   (FastAPI interface — skeleton, scan flow, and service detection; no
+   built in Milestone 4; wired into `cli.py` (`--assess`/`--offline`) and
+   `web/` (`web/services/security_service.py`, `POST
+   /api/v1/assessments`) in Milestone 5 — see [Decision 34](../DECISIONS.md)
+   for why the wiring is named generically, as the first module of a
+   pluggable Security Engine rather than a one-off), `src/port_scanner/
+   cli.py`, and `src/port_scanner/web/` (FastAPI interface — skeleton,
+   scan flow, service detection, and Security Engine wiring; no
    auth/database/async-queue yet, deliberately deferred; see `ROADMAP.md`
    and `ARCHITECTURE.md`) — this is the entire application; all are short
    enough to read in full.
 4. Read `tests/test_scanner.py`, `tests/test_cli.py`,
    `tests/test_detection.py`, `tests/test_discovery.py`,
    `tests/test_security_*.py` (matching, risk, cve_db, providers, engine),
-   and `tests/test_web.py` — the tests define the contract the code must
-   keep.
+   `tests/test_web.py`, and `tests/test_web_security.py` — the tests
+   define the contract the code must keep.
 5. Read `pyproject.toml` — authoritative source for version, dependencies,
    Python support range, and the `port-scanner` console-script entry point.
 6. Read `README.md` — user-facing description of features and usage.
